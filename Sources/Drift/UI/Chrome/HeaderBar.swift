@@ -71,30 +71,17 @@ struct CapsuleIconButton: View {
     }
 }
 
-// MARK: - Titlebar leading: traffic lights, sidebar toggle, app title
+// MARK: - Titlebar leading: traffic lights and app title
 
 /// Occupies the leading edge of the titlebar strip, directly after the native
-/// traffic lights, matching Apple Music's continuous left section.
+/// traffic lights. The sidebar is permanent, so there is no toggle here.
 struct HeaderLeadingControls: View {
-    @Binding var sidebarVisibility: NavigationSplitViewVisibility
-
-    private var isSidebarVisible: Bool { sidebarVisibility != .detailOnly }
-
     var body: some View {
         HStack(spacing: 0) {
             // Reserve the traffic-light cluster without swallowing its clicks.
             Color.clear
                 .frame(width: DesignSystem.Metrics.trafficLightInset)
                 .allowsHitTesting(false)
-
-            Button {
-                sidebarVisibility = isSidebarVisible ? .detailOnly : .all
-            } label: {
-                Image(systemName: "sidebar.leading")
-            }
-            .buttonStyle(CapsuleIconButtonStyle())
-            .help(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
-            .accessibilityLabel(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
 
             Text("Drift")
                 .font(.system(size: DesignSystem.Metrics.titleSize, weight: .semibold))

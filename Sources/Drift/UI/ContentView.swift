@@ -2,10 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: ListViewModel
-    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @FocusState private var filterFocused: Bool
-
-    private var isSidebarVisible: Bool { sidebarVisibility != .detailOnly }
 
     private var footerRadius: CGFloat {
         model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
@@ -21,7 +18,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            NavigationSplitView(columnVisibility: .constant(.all)) {
                 SidebarView(model: model)
                     // NavigationSplitView installs its own sidebar toggle in the
                     // window toolbar, which would duplicate the one drawn in the
@@ -49,14 +46,6 @@ struct ContentView: View {
             header.ignoresSafeArea(.container, edges: .top)
         }
         .navigationTitle("Drift")
-        .onChange(of: sidebarVisibility) { _, _ in
-            filterFocused = false
-        }
-        .onChange(of: filterFocused) { _, focused in
-            if focused, sidebarVisibility == .detailOnly {
-                filterFocused = false
-            }
-        }
     }
 
     /// One continuous titlebar row: traffic lights, sidebar toggle and title on
@@ -64,12 +53,12 @@ struct ContentView: View {
     private var header: some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
-                HeaderLeadingControls(sidebarVisibility: $sidebarVisibility)
+                HeaderLeadingControls()
                 Spacer(minLength: DesignSystem.Metrics.controlGap)
                 HeaderTrailingControls(
                     model: model,
                     availableWidth: proxy.size.width
-                        - (isSidebarVisible ? DesignSystem.Metrics.sidebarReserve : 0),
+                        - DesignSystem.Metrics.sidebarReserve,
                     filterFocused: $filterFocused
                 )
             }
