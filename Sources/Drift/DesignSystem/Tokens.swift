@@ -14,6 +14,7 @@ enum DesignSystem {
     }
 
     enum Palette {
+        static let accent = Color.blue
         static let downloading = Color.blue
         static let seeding = Color.green
         static let completed = Color.gray

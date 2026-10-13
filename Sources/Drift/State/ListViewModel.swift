@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 import Observation
 
 protocol TorrentProviding: Sendable {
@@ -31,6 +31,10 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
         case .all: "tray.full"
         default: TorrentStatus(rawValue: rawValue)?.systemImage ?? "circle"
         }
+    }
+
+    var tint: Color {
+        TorrentStatus(rawValue: rawValue)?.tint ?? DesignSystem.Palette.accent
     }
 
     func matches(_ torrent: TorrentSummary) -> Bool {

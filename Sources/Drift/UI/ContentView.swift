@@ -14,6 +14,7 @@ struct ContentView: View {
                 DetailsPanelView(model: model)
             }
         }
+        .tint(DesignSystem.Palette.accent)
         .safeAreaInset(edge: .bottom) {
             StatusbarView(model: model)
         }

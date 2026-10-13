@@ -20,17 +20,27 @@ struct StatusbarView: View {
             Label {
                 Text(DesignSystem.Format.speed(model.globalDownloadSpeed))
                     .monospacedDigit()
+                    .foregroundStyle(model.globalDownloadSpeed > 0
+                                     ? DesignSystem.Palette.downloading
+                                     : Color.secondary)
             } icon: {
                 Image(systemName: "arrow.down")
-                    .foregroundStyle(DesignSystem.Palette.downloading)
+                    .foregroundStyle(model.globalDownloadSpeed > 0
+                                     ? DesignSystem.Palette.downloading
+                                     : Color.secondary)
             }
 
             Label {
                 Text(DesignSystem.Format.speed(model.globalUploadSpeed))
                     .monospacedDigit()
+                    .foregroundStyle(model.globalUploadSpeed > 0
+                                     ? DesignSystem.Palette.seeding
+                                     : Color.secondary)
             } icon: {
                 Image(systemName: "arrow.up")
-                    .foregroundStyle(DesignSystem.Palette.seeding)
+                    .foregroundStyle(model.globalUploadSpeed > 0
+                                     ? DesignSystem.Palette.seeding
+                                     : Color.secondary)
             }
         }
         .font(.callout)

@@ -17,6 +17,7 @@ struct SidebarView: View {
                         }
                     } icon: {
                         Image(systemName: filter.systemImage)
+                            .foregroundStyle(filter.tint)
                     }
                     .tag(filter)
                 }

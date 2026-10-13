@@ -26,6 +26,7 @@ struct TorrentListView: View {
                 HStack(spacing: DesignSystem.Spacing.sm) {
                     ProgressView(value: torrent.progress)
                         .progressViewStyle(.linear)
+                        .tint(torrent.status.tint)
                     Text(DesignSystem.Format.percent(torrent.progress))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
