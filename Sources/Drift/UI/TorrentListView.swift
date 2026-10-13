@@ -4,6 +4,12 @@ import AppKit
 struct TorrentListView: View {
     @Bindable var model: ListViewModel
 
+    private var rowDoubleClick: some Gesture {
+        TapGesture(count: 2).onEnded {
+            model.toggleDetails()
+        }
+    }
+
     var body: some View {
         Table(
             model.filtered,
@@ -19,12 +25,14 @@ struct TorrentListView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                .simultaneousGesture(rowDoubleClick)
             }
             .width(min: 240, ideal: 360)
 
             TableColumn("Status", value: \TorrentSummary.status) { torrent in
                 Text(torrent.status.label)
                     .foregroundStyle(torrent.status.tint)
+                    .simultaneousGesture(rowDoubleClick)
             }
             .width(100)
             .customizationID("status")
@@ -38,6 +46,7 @@ struct TorrentListView: View {
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+                .simultaneousGesture(rowDoubleClick)
             }
             .width(min: 140, ideal: 180)
             .customizationID("progress")
@@ -45,6 +54,7 @@ struct TorrentListView: View {
             TableColumn("Size", value: \TorrentSummary.size) { torrent in
                 Text(DesignSystem.Format.size(torrent.size))
                     .monospacedDigit()
+                    .simultaneousGesture(rowDoubleClick)
             }
             .width(90)
             .customizationID("size")
@@ -53,6 +63,7 @@ struct TorrentListView: View {
                 Text(DesignSystem.Format.speed(torrent.downloadSpeed))
                     .monospacedDigit()
                     .foregroundStyle(torrent.downloadSpeed > 0 ? DesignSystem.Palette.downloading : .secondary)
+                    .simultaneousGesture(rowDoubleClick)
             }
             .width(90)
             .customizationID("downloadSpeed")
@@ -61,6 +72,7 @@ struct TorrentListView: View {
                 Text(DesignSystem.Format.speed(torrent.uploadSpeed))
                     .monospacedDigit()
                     .foregroundStyle(torrent.uploadSpeed > 0 ? DesignSystem.Palette.seeding : .secondary)
+                    .simultaneousGesture(rowDoubleClick)
             }
             .width(90)
             .customizationID("uploadSpeed")
@@ -68,6 +80,7 @@ struct TorrentListView: View {
             TableColumn("ETA", value: \TorrentSummary.etaSortKey) { torrent in
                 Text(DesignSystem.Format.eta(torrent.eta))
                     .monospacedDigit()
+                    .simultaneousGesture(rowDoubleClick)
             }
             .width(80)
             .customizationID("eta")

@@ -108,9 +108,7 @@ struct ContentView: View {
                     .help("More options")
 
                     Button {
-                        withAnimation(.spring(duration: 0.35)) {
-                            model.detailsCollapsed.toggle()
-                        }
+                        model.toggleDetails()
                     } label: {
                         Image(systemName: model.detailsCollapsed ? "info.circle" : "info.circle.fill")
                     }

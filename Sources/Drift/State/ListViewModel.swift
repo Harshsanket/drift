@@ -56,6 +56,12 @@ final class ListViewModel {
     var statusFilter: StatusFilter = .all
     var searchText = ""
     var detailsCollapsed = true
+
+    func toggleDetails() {
+        withAnimation(.spring(duration: 0.35)) {
+            detailsCollapsed.toggle()
+        }
+    }
     var isConnected = true
     var sortOrder: [KeyPathComparator<TorrentSummary>] = []
     var columnCustomization = TableColumnCustomization<TorrentSummary>()
