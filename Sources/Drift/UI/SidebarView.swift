@@ -35,5 +35,7 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .focusable(false)
+        .scrollContentBackground(.hidden)
+        .background(.ultraThinMaterial)
     }
 }

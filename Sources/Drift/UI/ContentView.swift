@@ -22,6 +22,7 @@ struct ContentView: View {
                     Label("Add Torrent", systemImage: "plus")
                 }
                 .disabled(true)
+                .padding(.horizontal, DesignSystem.Spacing.xs)
                 .help("Add torrent (Phase 4)")
             }
 
@@ -30,6 +31,7 @@ struct ContentView: View {
                     Label("Pause All", systemImage: "pause")
                 }
                 .disabled(true)
+                .padding(.horizontal, DesignSystem.Spacing.xs)
                 .help("Pause all (Phase 5)")
             }
 
@@ -38,6 +40,7 @@ struct ContentView: View {
                     Label("Resume All", systemImage: "play")
                 }
                 .disabled(true)
+                .padding(.horizontal, DesignSystem.Spacing.xs)
                 .help("Resume all (Phase 5)")
             }
 
@@ -67,6 +70,7 @@ struct ContentView: View {
                         .help("Clear filter")
                     }
                 }
+                .padding(.leading, DesignSystem.Spacing.xs)
             }
 
             ToolbarItem(placement: .primaryAction) {
