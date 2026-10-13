@@ -45,8 +45,7 @@ struct StatusbarView: View {
         }
         .font(.callout)
         .padding(.horizontal, DesignSystem.Spacing.lg)
-        .padding(.vertical, DesignSystem.Spacing.sm)
+        .padding(.vertical, DesignSystem.Spacing.xs)
         .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: Capsule())
     }
 }

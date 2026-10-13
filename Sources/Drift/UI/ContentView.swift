@@ -10,51 +10,44 @@ struct ContentView: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
         } detail: {
-            VStack(spacing: 0) {
-                TorrentListView(model: model)
-                Divider()
-                DetailsPanelView(model: model)
-            }
+            TorrentListView(model: model)
         }
         .tint(DesignSystem.Palette.accent)
         .safeAreaInset(edge: .bottom) {
-            StatusbarView(model: model)
-                .padding(.horizontal, DesignSystem.Spacing.md)
-                .padding(.bottom, DesignSystem.Spacing.xs)
+            bottomBar
         }
         .toolbar {
             ToolbarItem {
-                HStack(spacing: DesignSystem.Spacing.sm) {
-                    Button(action: {}) {
-                        Label("Add Torrent", systemImage: "plus")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(true)
-                    .help("Add torrent (Phase 4)")
-
-                    Button(action: {}) {
-                        Label("Pause All", systemImage: "pause")
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(true)
-                    .help("Pause all (Phase 5)")
-
-                    Button(action: {}) {
-                        Label("Resume All", systemImage: "play")
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(true)
-                    .help("Resume all (Phase 5)")
+                Button(action: {}) {
+                    Label("Add Torrent", systemImage: "plus")
                 }
+                .disabled(true)
+                .help("Add torrent (Phase 4)")
+            }
+
+            ToolbarItem {
+                Button(action: {}) {
+                    Label("Pause All", systemImage: "pause")
+                }
+                .disabled(true)
+                .help("Pause all (Phase 5)")
+            }
+
+            ToolbarItem {
+                Button(action: {}) {
+                    Label("Resume All", systemImage: "play")
+                }
+                .disabled(true)
+                .help("Resume all (Phase 5)")
             }
 
             ToolbarItem {
                 HStack(spacing: DesignSystem.Spacing.xs) {
                     TextField("Filter", text: $model.searchText)
                         .textFieldStyle(.plain)
-                        .frame(width: 170)
-                        .padding(.horizontal, DesignSystem.Spacing.md)
+                        .padding(.horizontal, DesignSystem.Spacing.sm)
                         .padding(.vertical, 6)
+                        .frame(width: 170)
                         .background {
                             Capsule()
                                 .fill(.regularMaterial)
@@ -74,36 +67,51 @@ struct ContentView: View {
                         .help("Clear filter")
                     }
                 }
-                .padding(.leading, DesignSystem.Spacing.lg)
             }
 
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Toggle("Details Panel", isOn: Binding(
-                        get: { !model.detailsCollapsed },
-                        set: { model.detailsCollapsed = !$0 }
-                    ))
+                HStack(spacing: DesignSystem.Spacing.sm) {
+                    Menu {
+                        Toggle("Details Panel", isOn: Binding(
+                            get: { !model.detailsCollapsed },
+                            set: { newValue in
+                                withAnimation(.spring(duration: 0.35)) {
+                                    model.detailsCollapsed = !newValue
+                                }
+                            }
+                        ))
 
-                    Divider()
+                        Divider()
 
-                    Menu("Columns") {
-                        Toggle("Status", isOn: columnVisibilityBinding("status"))
-                        Toggle("Progress", isOn: columnVisibilityBinding("progress"))
-                        Toggle("Size", isOn: columnVisibilityBinding("size"))
-                        Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
-                        Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
-                        Toggle("ETA", isOn: columnVisibilityBinding("eta"))
+                        Menu("Columns") {
+                            Toggle("Status", isOn: columnVisibilityBinding("status"))
+                            Toggle("Progress", isOn: columnVisibilityBinding("progress"))
+                            Toggle("Size", isOn: columnVisibilityBinding("size"))
+                            Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
+                            Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
+                            Toggle("ETA", isOn: columnVisibilityBinding("eta"))
+                        }
+
+                        Divider()
+
+                        Button("Settings…") {}
+                            .disabled(true)
+                            .help("Settings (Phase 10)")
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
+                    .menuIndicator(.hidden)
+                    .help("More options")
 
-                    Divider()
-
-                    Button("Settings…") {}
-                        .disabled(true)
-                        .help("Settings (Phase 10)")
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Button {
+                        withAnimation(.spring(duration: 0.35)) {
+                            model.detailsCollapsed.toggle()
+                        }
+                    } label: {
+                        Image(systemName: model.detailsCollapsed ? "info.circle" : "info.circle.fill")
+                    }
+                    .help(model.detailsCollapsed ? "Expand details" : "Collapse details")
                 }
-                .help("More options")
             }
         }
         .navigationTitle("Drift")
@@ -115,6 +123,25 @@ struct ContentView: View {
                 filterFocused = false
             }
         }
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            if !model.detailsCollapsed {
+                DetailsPanelView(model: model)
+                    .glassEffectTransition(.materialize)
+                    .transition(.opacity)
+            }
+
+            StatusbarView(model: model)
+        }
+        .frame(maxWidth: .infinity)
+        .glassEffect(
+            .regular,
+            in: RoundedRectangle(cornerRadius: model.detailsCollapsed ? 12 : 14, style: .continuous)
+        )
+        .padding(.horizontal, DesignSystem.Spacing.md)
+        .padding(.bottom, DesignSystem.Spacing.xs)
     }
 
     private func columnVisibilityBinding(_ id: String) -> Binding<Bool> {
