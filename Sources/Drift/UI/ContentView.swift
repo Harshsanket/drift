@@ -40,12 +40,16 @@ struct ContentView: View {
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         footer
                     }
+                    // The window itself is transparent so the sidebar can show
+                    // the desktop; the detail column must stay solid.
+                    .background(Color(nsColor: .windowBackgroundColor))
             }
             .tint(DesignSystem.Palette.accent)
 
             header.ignoresSafeArea(.container, edges: .top)
         }
         .navigationTitle("Drift")
+        .background(TransparentWindowAttachment())
     }
 
     /// One continuous titlebar row: traffic lights, sidebar toggle and title on

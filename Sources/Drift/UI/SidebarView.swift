@@ -35,11 +35,9 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .focusable(false)
-        // Keeps the frosted sidebar material: the split view supplies the native
-        // `NSGlassEffectView` column background, and this adds the system
-        // `.ultraThinMaterial` vibrancy on top so the wallpaper reads through
-        // and the sidebar stays light rather than a flat dark panel.
+        // Real translucency: the window is non-opaque (TransparentWindowAttachment)
+        // and this blur samples what is behind it, so the wallpaper reads through.
         .scrollContentBackground(.hidden)
-        .background(.ultraThinMaterial)
+        .background(BehindWindowBlur())
     }
 }
