@@ -2,16 +2,12 @@ import SwiftUI
 
 @main
 struct DriftApp: App {
+    @State private var model = ListViewModel()
+
     var body: some Scene {
         WindowGroup {
-            VStack(spacing: 8) {
-                Text("Drift")
-                    .font(.largeTitle)
-                Text("In development")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 360, minHeight: 240)
+            ContentView(model: model)
         }
-        .defaultSize(width: 960, height: 640)
+        .defaultSize(width: 1100, height: 700)
     }
 }
