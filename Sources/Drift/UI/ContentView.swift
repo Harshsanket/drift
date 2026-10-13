@@ -2,9 +2,11 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: ListViewModel
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .automatic
+    @FocusState private var filterFocused: Bool
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
         } detail: {
@@ -54,6 +56,7 @@ struct ContentView: View {
                     TextField("Filter", text: $model.searchText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
+                        .focused($filterFocused)
                     if !model.searchText.isEmpty {
                         Button {
                             model.searchText = ""
@@ -75,6 +78,9 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Drift")
+        .onChange(of: sidebarVisibility) { _, _ in
+            filterFocused = false
+        }
     }
 
     private func columnVisibilityBinding(_ id: String) -> Binding<Bool> {
