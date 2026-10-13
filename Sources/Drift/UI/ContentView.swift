@@ -23,28 +23,32 @@ struct ContentView: View {
                 .padding(.bottom, DesignSystem.Spacing.xs)
         }
         .toolbar {
-            ToolbarItemGroup {
-                Button(action: {}) {
-                    Label("Add Torrent", systemImage: "plus")
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(true)
-                .help("Add torrent (Phase 4)")
+            ToolbarItem {
+                HStack(spacing: DesignSystem.Spacing.sm) {
+                    Button(action: {}) {
+                        Label("Add Torrent", systemImage: "plus")
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(true)
+                    .help("Add torrent (Phase 4)")
 
-                Button(action: {}) {
-                    Label("Pause All", systemImage: "pause")
-                }
-                .buttonStyle(.glass)
-                .disabled(true)
-                .help("Pause all (Phase 5)")
+                    Button(action: {}) {
+                        Label("Pause All", systemImage: "pause")
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(true)
+                    .help("Pause all (Phase 5)")
 
-                Button(action: {}) {
-                    Label("Resume All", systemImage: "play")
+                    Button(action: {}) {
+                        Label("Resume All", systemImage: "play")
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(true)
+                    .help("Resume all (Phase 5)")
                 }
-                .buttonStyle(.glass)
-                .disabled(true)
-                .help("Resume all (Phase 5)")
+            }
 
+            ToolbarItem {
                 HStack(spacing: DesignSystem.Spacing.xs) {
                     TextField("Filter", text: $model.searchText)
                         .textFieldStyle(.plain)
@@ -70,7 +74,10 @@ struct ContentView: View {
                         .help("Clear filter")
                     }
                 }
+                .padding(.leading, DesignSystem.Spacing.lg)
+            }
 
+            ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Toggle("Details Panel", isOn: Binding(
                         get: { !model.detailsCollapsed },
