@@ -2,119 +2,51 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: ListViewModel
-    @State private var sidebarVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @FocusState private var filterFocused: Bool
 
+    private var isSidebarVisible: Bool { sidebarVisibility != .detailOnly }
+
+    private var footerRadius: CGFloat {
+        model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
+    }
+
+    /// How far the padded header extends past the band the system already keeps
+    /// clear for the hidden titlebar. The split view insets its columns from the
+    /// real safe area, so the overflow has to be added on top of it or the
+    /// header would cover the table's first row.
+    private var headerOverflow: CGFloat {
+        max(0, DesignSystem.Metrics.headerHeight - DesignSystem.Metrics.titlebarBand)
+    }
+
     var body: some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            SidebarView(model: model)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
-        } detail: {
-            TorrentListView(model: model)
-        }
-        .tint(DesignSystem.Palette.accent)
-        .safeAreaInset(edge: .bottom) {
-            bottomBar
-        }
-        .toolbar {
-            ToolbarItem {
-                Button(action: {}) {
-                    Label("Add Torrent", systemImage: "plus")
-                }
-                .disabled(true)
-                .padding(.horizontal, DesignSystem.Spacing.xs)
-                .help("Add torrent (Phase 4)")
-            }
-
-            ToolbarItem {
-                Button(action: {}) {
-                    Label("Pause All", systemImage: "pause")
-                }
-                .disabled(true)
-                .padding(.horizontal, DesignSystem.Spacing.xs)
-                .help("Pause all (Phase 5)")
-            }
-
-            ToolbarItem {
-                Button(action: {}) {
-                    Label("Resume All", systemImage: "play")
-                }
-                .disabled(true)
-                .padding(.horizontal, DesignSystem.Spacing.xs)
-                .help("Resume all (Phase 5)")
-            }
-
-            ToolbarItem {
-                HStack(spacing: DesignSystem.Spacing.xs) {
-                    TextField("Filter", text: $model.searchText)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, DesignSystem.Spacing.sm)
-                        .padding(.vertical, 6)
-                        .frame(width: 170)
-                        .background {
-                            Capsule()
-                                .fill(.regularMaterial)
-                            Capsule()
-                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                        }
-                        .focused($filterFocused)
-
-                    if !model.searchText.isEmpty {
-                        Button {
-                            model.searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Clear filter")
+        ZStack(alignment: .top) {
+            NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                SidebarView(model: model)
+                    // NavigationSplitView installs its own sidebar toggle in the
+                    // window toolbar, which would duplicate the one drawn in the
+                    // titlebar row. Removing it also drops the empty toolbar, so
+                    // the titlebar collapses to the compact header strip.
+                    //
+                    // Keep this modifier ABOVE `navigationSplitViewColumnWidth`:
+                    // the other order discards the width preference and the
+                    // sidebar silently collapses to 144pt, truncating its labels.
+                    .toolbar(removing: .sidebarToggle)
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
+            } detail: {
+                TorrentListView(model: model)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        Color.clear
+                            .frame(height: headerOverflow)
+                            .allowsHitTesting(false)
                     }
-                }
-                .padding(.leading, DesignSystem.Spacing.xs)
-            }
-
-            ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: DesignSystem.Spacing.sm) {
-                    Menu {
-                        Toggle("Details Panel", isOn: Binding(
-                            get: { !model.detailsCollapsed },
-                            set: { newValue in
-                                withAnimation(.spring(duration: 0.35)) {
-                                    model.detailsCollapsed = !newValue
-                                }
-                            }
-                        ))
-
-                        Divider()
-
-                        Menu("Columns") {
-                            Toggle("Status", isOn: columnVisibilityBinding("status"))
-                            Toggle("Progress", isOn: columnVisibilityBinding("progress"))
-                            Toggle("Size", isOn: columnVisibilityBinding("size"))
-                            Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
-                            Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
-                            Toggle("ETA", isOn: columnVisibilityBinding("eta"))
-                        }
-
-                        Divider()
-
-                        Button("Settings…") {}
-                            .disabled(true)
-                            .help("Settings (Phase 10)")
-                    } label: {
-                        Image(systemName: "ellipsis")
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        footer
                     }
-                    .menuIndicator(.hidden)
-                    .help("More options")
-
-                    Button {
-                        model.toggleDetails()
-                    } label: {
-                        Image(systemName: model.detailsCollapsed ? "info.circle" : "info.circle.fill")
-                    }
-                    .help(model.detailsCollapsed ? "Expand details" : "Collapse details")
-                }
             }
+            .tint(DesignSystem.Palette.accent)
+
+            header.ignoresSafeArea(.container, edges: .top)
         }
         .navigationTitle("Drift")
         .onChange(of: sidebarVisibility) { _, _ in
@@ -127,29 +59,48 @@ struct ContentView: View {
         }
     }
 
-    private var bottomBar: some View {
+    /// One continuous titlebar row: traffic lights, sidebar toggle and title on
+    /// the left, independently separated capsule controls on the right.
+    private var header: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                HeaderLeadingControls(sidebarVisibility: $sidebarVisibility)
+                Spacer(minLength: DesignSystem.Metrics.controlGap)
+                HeaderTrailingControls(
+                    model: model,
+                    availableWidth: proxy.size.width
+                        - (isSidebarVisible ? DesignSystem.Metrics.sidebarReserve : 0),
+                    filterFocused: $filterFocused
+                )
+            }
+            .frame(height: DesignSystem.Metrics.headerHeight)
+        }
+        .frame(height: DesignSystem.Metrics.headerHeight)
+    }
+
+    /// Floating footer. It is anchored to the detail column's safe area, so the
+    /// bar follows the torrent table's boundaries instead of the window's and
+    /// never runs underneath the sidebar. Double-clicking it grows the same
+    /// surface into the details panel rather than stacking a second bar.
+    private var footer: some View {
         VStack(spacing: 0) {
             if !model.detailsCollapsed {
                 DetailsPanelView(model: model)
-                    .glassEffectTransition(.materialize)
                     .transition(.opacity)
             }
 
             StatusbarView(model: model)
         }
-        .frame(maxWidth: .infinity)
         .glassEffect(
             .regular,
-            in: RoundedRectangle(cornerRadius: model.detailsCollapsed ? 12 : 14, style: .continuous)
+            in: RoundedRectangle(cornerRadius: footerRadius, style: .continuous)
         )
-        .padding(.horizontal, DesignSystem.Spacing.md)
-        .padding(.bottom, DesignSystem.Spacing.xs)
-    }
-
-    private func columnVisibilityBinding(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { model.columnCustomization[visibility: id] != .hidden },
-            set: { model.columnCustomization[visibility: id] = $0 ? .visible : .hidden }
-        )
+        .contentShape(RoundedRectangle(cornerRadius: footerRadius, style: .continuous))
+        .onTapGesture(count: 2) {
+            model.toggleDetails()
+        }
+        .help(model.detailsCollapsed ? "Double-click to show details" : "Double-click to hide details")
+        .padding(.horizontal, DesignSystem.Metrics.statusBarSideMargin)
+        .padding(.bottom, DesignSystem.Metrics.statusBarBottomMargin)
     }
 }

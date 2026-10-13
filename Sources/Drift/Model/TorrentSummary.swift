@@ -9,6 +9,8 @@ struct TorrentSummary: Identifiable, Equatable {
     var downloadSpeed: Int64
     var uploadSpeed: Int64
     var eta: TimeInterval?
+    /// Total time the torrent has been active, mirroring qBittorrent's `time_active`.
+    var timeActive: TimeInterval = 0
     var category: String?
     var tags: [String]
 

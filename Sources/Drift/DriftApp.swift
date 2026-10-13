@@ -9,5 +9,6 @@ struct DriftApp: App {
             ContentView(model: model)
         }
         .defaultSize(width: 1100, height: 700)
+        .windowStyle(.hiddenTitleBar)
     }
 }

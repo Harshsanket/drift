@@ -13,6 +13,39 @@ enum DesignSystem {
         static let md: CGFloat = 6
     }
 
+    /// Shared geometry for the window chrome: the compact titlebar header,
+    /// the separated capsule controls and the floating status bar.
+    enum Metrics {
+        /// Uniform height for every header control and the floating status bar.
+        static let controlHeight: CGFloat = 28
+        /// Breathing room above and below the header controls, so the capsules
+        /// never sit flush against the window's top edge.
+        static let headerPadding: CGFloat = 10
+        /// The compact titlebar strip the header row lives in: the controls plus
+        /// their padding, so the traffic lights, the sidebar toggle and the
+        /// title read as one row.
+        static let headerHeight: CGFloat = controlHeight + 2 * headerPadding
+        /// What the system reserves for the hidden titlebar. The header draws
+        /// over this band; only the remainder is pushed down onto the content.
+        static let titlebarBand: CGFloat = 32
+        /// Clears the standard traffic-light cluster (x 9…69) plus an 8pt gap.
+        static let trafficLightInset: CGFloat = 77
+        static let statusBarHeight: CGFloat = 32
+        static let iconSize: CGFloat = 13
+        static let searchIconSize: CGFloat = 11
+        static let titleSize: CGFloat = 13
+        /// Gap between neighbouring standalone controls.
+        static let controlGap: CGFloat = 10
+        static let titleLeading: CGFloat = 12
+        static let headerTrailing: CGFloat = 16
+        static let hairline: CGFloat = 0.5
+        /// Sidebar width assumed when working out how much header room is left.
+        static let sidebarReserve: CGFloat = 220
+        /// Floating status bar: margins measured from the main content edges.
+        static let statusBarSideMargin: CGFloat = 14
+        static let statusBarBottomMargin: CGFloat = 12
+    }
+
     enum Palette {
         static let accent = Color.blue
         static let downloading = Color.blue
@@ -44,6 +77,20 @@ enum DesignSystem {
             let s = total % 60
             if m > 0 { return "\(m)m \(String(format: "%02d", s))s" }
             return "\(s)s"
+        }
+
+        /// Elapsed duration, e.g. "2h 14m", "18m 03s", "42s".
+        static func duration(_ seconds: TimeInterval) -> String {
+            guard seconds > 0 else { return "—" }
+            let total = Int(seconds)
+            let days = total / 86_400
+            let hours = (total % 86_400) / 3600
+            let minutes = (total % 3600) / 60
+            let secs = total % 60
+            if days > 0 { return "\(days)d \(hours)h" }
+            if hours > 0 { return "\(hours)h \(String(format: "%02d", minutes))m" }
+            if minutes > 0 { return "\(minutes)m \(String(format: "%02d", secs))s" }
+            return "\(secs)s"
         }
 
         static func percent(_ progress: Double) -> String {

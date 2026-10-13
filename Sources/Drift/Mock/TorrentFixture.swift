@@ -12,6 +12,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 2_100_000,
                 uploadSpeed: 120_000,
                 eta: 1_800,
+                timeActive: 8040,
                 category: "linux",
                 tags: ["distro"]
             ),
@@ -24,6 +25,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 0,
                 uploadSpeed: 340_000,
                 eta: nil,
+                timeActive: 273600,
                 category: "linux",
                 tags: ["distro"]
             ),
@@ -36,6 +38,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 0,
                 uploadSpeed: 0,
                 eta: nil,
+                timeActive: 720,
                 category: "linux",
                 tags: ["distro"]
             ),
@@ -48,6 +51,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 0,
                 uploadSpeed: 0,
                 eta: nil,
+                timeActive: 42,
                 category: "linux",
                 tags: []
             ),
@@ -60,6 +64,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 0,
                 uploadSpeed: 0,
                 eta: nil,
+                timeActive: 3900,
                 category: "linux",
                 tags: ["distro"]
             ),
@@ -72,6 +77,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 5_400_000,
                 uploadSpeed: 12_000,
                 eta: 120,
+                timeActive: 3312,
                 category: "linux",
                 tags: []
             ),
@@ -84,6 +90,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 0,
                 uploadSpeed: 890_000,
                 eta: nil,
+                timeActive: 525600,
                 category: nil,
                 tags: ["home"]
             ),
@@ -96,6 +103,7 @@ struct MockTorrentProvider: TorrentProviding {
                 downloadSpeed: 890_000,
                 uploadSpeed: 0,
                 eta: 180,
+                timeActive: 200,
                 category: "linux",
                 tags: ["small", "test"]
             )

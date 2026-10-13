@@ -84,6 +84,15 @@ struct TorrentListView: View {
             }
             .width(80)
             .customizationID("eta")
+
+            TableColumn("Time", value: \TorrentSummary.timeActive) { torrent in
+                Text(DesignSystem.Format.duration(torrent.timeActive))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .simultaneousGesture(rowDoubleClick)
+            }
+            .width(80)
+            .customizationID("timeActive")
         }
         .tableStyle(.inset)
         .contextMenu {
