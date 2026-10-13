@@ -17,7 +17,7 @@ enum DesignSystem {
         static let accent = Color.blue
         static let downloading = Color.blue
         static let seeding = Color.green
-        static let completed = Color.gray
+        static let completed = Color(red: 0.0, green: 0.32, blue: 0.64)
         static let stopped = Color.secondary
         static let stalled = Color.orange
         static let error = Color.red
