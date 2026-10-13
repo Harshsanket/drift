@@ -1,0 +1,22 @@
+# Internal private documentation — never publish (path-specific; no blanket *.md rule)
+docs-internal/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Xcode (when an .xcodeproj is introduced)
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# Secrets / local configuration — never commit
+.env
+.env.*
+*.pem
+*.key
+local-config/
