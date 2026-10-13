@@ -11,9 +11,11 @@ struct TorrentSummary: Identifiable, Equatable {
     var eta: TimeInterval?
     var category: String?
     var tags: [String]
+
+    var etaSortKey: TimeInterval { eta ?? .infinity }
 }
 
-enum TorrentStatus: String, CaseIterable, Hashable {
+enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
     case downloading
     case seeding
     case completed
@@ -48,5 +50,12 @@ enum TorrentStatus: String, CaseIterable, Hashable {
         case .stopped: DesignSystem.Palette.stopped
         case .stalled: DesignSystem.Palette.stalled
         }
+    }
+
+    static func < (lhs: TorrentStatus, rhs: TorrentStatus) -> Bool {
+        guard let l = allCases.firstIndex(of: lhs),
+              let r = allCases.firstIndex(of: rhs)
+        else { return false }
+        return l < r
     }
 }

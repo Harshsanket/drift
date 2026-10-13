@@ -13,6 +13,10 @@ struct DetailsPanelView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(model.selectedTorrent == nil ? .tertiary : .primary)
+                    if let torrent = model.selectedTorrent, model.selectedIDs.count > 1 {
+                        Text("· \(model.selectedIDs.count) selected")
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button {
                         model.detailsCollapsed = true

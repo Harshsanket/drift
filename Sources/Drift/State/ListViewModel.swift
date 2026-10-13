@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Observation
 
@@ -56,6 +57,8 @@ final class ListViewModel {
     var searchText = ""
     var detailsCollapsed = true
     var isConnected = true
+    var sortOrder: [KeyPathComparator<TorrentSummary>] = []
+    var columnCustomization = TableColumnCustomization<TorrentSummary>()
 
     init(provider: TorrentProviding = MockTorrentProvider()) {
         self.provider = provider
@@ -63,10 +66,12 @@ final class ListViewModel {
     }
 
     var filtered: [TorrentSummary] {
-        torrents.filter { torrent in
-            statusFilter.matches(torrent)
-                && (searchText.isEmpty || torrent.name.localizedCaseInsensitiveContains(searchText))
-        }
+        torrents
+            .filter { torrent in
+                statusFilter.matches(torrent)
+                    && (searchText.isEmpty || torrent.name.localizedCaseInsensitiveContains(searchText))
+            }
+            .sorted(using: sortOrder)
     }
 
     var selectedTorrent: TorrentSummary? {

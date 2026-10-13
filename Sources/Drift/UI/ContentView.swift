@@ -38,9 +38,33 @@ struct ContentView: View {
                 .disabled(true)
                 .help("Resume all (Phase 5)")
 
-                TextField("Filter", text: $model.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
+                Menu {
+                    Toggle("Status", isOn: columnVisibilityBinding("status"))
+                    Toggle("Progress", isOn: columnVisibilityBinding("progress"))
+                    Toggle("Size", isOn: columnVisibilityBinding("size"))
+                    Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
+                    Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
+                    Toggle("ETA", isOn: columnVisibilityBinding("eta"))
+                } label: {
+                    Image(systemName: "tablecells")
+                }
+                .help("Column visibility")
+
+                HStack(spacing: DesignSystem.Spacing.xs) {
+                    TextField("Filter", text: $model.searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                    if !model.searchText.isEmpty {
+                        Button {
+                            model.searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Clear filter")
+                    }
+                }
 
                 Button {
                     model.detailsCollapsed.toggle()
@@ -51,5 +75,12 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Drift")
+    }
+
+    private func columnVisibilityBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { model.columnCustomization[visibility: id] != .hidden },
+            set: { model.columnCustomization[visibility: id] = $0 ? .visible : .hidden }
+        )
     }
 }
