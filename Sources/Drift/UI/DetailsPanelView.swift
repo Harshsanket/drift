@@ -32,14 +32,17 @@ struct DetailsPanelView: View {
 
                 Divider()
 
-                HStack(spacing: DesignSystem.Spacing.lg) {
+                HStack(spacing: DesignSystem.Spacing.sm) {
                     ForEach(["General", "Trackers", "Peers", "Sources", "Files"], id: \.self) { tab in
                         Text(tab)
+                            .font(.callout)
+                            .padding(.horizontal, DesignSystem.Spacing.md)
+                            .padding(.vertical, DesignSystem.Spacing.xs)
+                            .background(Capsule().fill(.quaternary))
                             .foregroundStyle(.tertiary)
                     }
                     Spacer()
                 }
-                .font(.callout)
                 .padding(.horizontal, DesignSystem.Spacing.lg)
                 .padding(.vertical, DesignSystem.Spacing.sm)
 
@@ -50,6 +53,7 @@ struct DetailsPanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(height: 160)
+            .background(.ultraThinMaterial)
         }
     }
 }

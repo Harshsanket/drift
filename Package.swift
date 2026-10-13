@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "Drift",
     platforms: [
-        .macOS(.v14)
+        .macOS("26.0")
     ],
     targets: [
         .executableTarget(

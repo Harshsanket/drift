@@ -34,5 +34,6 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .focusable(false)
     }
 }

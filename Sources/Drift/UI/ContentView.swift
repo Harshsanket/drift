@@ -19,44 +19,46 @@ struct ContentView: View {
         .tint(DesignSystem.Palette.accent)
         .safeAreaInset(edge: .bottom) {
             StatusbarView(model: model)
+                .padding(.horizontal, DesignSystem.Spacing.md)
+                .padding(.bottom, DesignSystem.Spacing.xs)
         }
         .toolbar {
             ToolbarItemGroup {
                 Button(action: {}) {
                     Label("Add Torrent", systemImage: "plus")
                 }
+                .buttonStyle(.glassProminent)
                 .disabled(true)
                 .help("Add torrent (Phase 4)")
 
                 Button(action: {}) {
                     Label("Pause All", systemImage: "pause")
                 }
+                .buttonStyle(.glass)
                 .disabled(true)
                 .help("Pause all (Phase 5)")
 
                 Button(action: {}) {
                     Label("Resume All", systemImage: "play")
                 }
+                .buttonStyle(.glass)
                 .disabled(true)
                 .help("Resume all (Phase 5)")
 
-                Menu {
-                    Toggle("Status", isOn: columnVisibilityBinding("status"))
-                    Toggle("Progress", isOn: columnVisibilityBinding("progress"))
-                    Toggle("Size", isOn: columnVisibilityBinding("size"))
-                    Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
-                    Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
-                    Toggle("ETA", isOn: columnVisibilityBinding("eta"))
-                } label: {
-                    Image(systemName: "tablecells")
-                }
-                .help("Column visibility")
-
                 HStack(spacing: DesignSystem.Spacing.xs) {
                     TextField("Filter", text: $model.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 180)
+                        .textFieldStyle(.plain)
+                        .frame(width: 170)
+                        .padding(.horizontal, DesignSystem.Spacing.md)
+                        .padding(.vertical, 6)
+                        .background {
+                            Capsule()
+                                .fill(.regularMaterial)
+                            Capsule()
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                        }
                         .focused($filterFocused)
+
                     if !model.searchText.isEmpty {
                         Button {
                             model.searchText = ""
@@ -69,17 +71,42 @@ struct ContentView: View {
                     }
                 }
 
-                Button {
-                    model.detailsCollapsed.toggle()
+                Menu {
+                    Toggle("Details Panel", isOn: Binding(
+                        get: { !model.detailsCollapsed },
+                        set: { model.detailsCollapsed = !$0 }
+                    ))
+
+                    Divider()
+
+                    Menu("Columns") {
+                        Toggle("Status", isOn: columnVisibilityBinding("status"))
+                        Toggle("Progress", isOn: columnVisibilityBinding("progress"))
+                        Toggle("Size", isOn: columnVisibilityBinding("size"))
+                        Toggle("DL", isOn: columnVisibilityBinding("downloadSpeed"))
+                        Toggle("UP", isOn: columnVisibilityBinding("uploadSpeed"))
+                        Toggle("ETA", isOn: columnVisibilityBinding("eta"))
+                    }
+
+                    Divider()
+
+                    Button("Settings…") {}
+                        .disabled(true)
+                        .help("Settings (Phase 10)")
                 } label: {
-                    Label("Details", systemImage: "info.circle")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .help("Toggle details panel")
+                .help("More options")
             }
         }
         .navigationTitle("Drift")
         .onChange(of: sidebarVisibility) { _, _ in
             filterFocused = false
+        }
+        .onChange(of: filterFocused) { _, focused in
+            if focused, sidebarVisibility == .detailOnly {
+                filterFocused = false
+            }
         }
     }
 
