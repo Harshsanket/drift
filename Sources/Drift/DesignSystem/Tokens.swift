@@ -17,7 +17,7 @@ enum DesignSystem {
     /// the separated capsule controls and the floating status bar.
     enum Metrics {
         /// Uniform height for every header control and the floating status bar.
-        static let controlHeight: CGFloat = 28
+        static let controlHeight: CGFloat = 32
         /// Breathing room above and below the header controls, so the capsules
         /// never sit flush against the window's top edge.
         static let headerPadding: CGFloat = 10
@@ -28,12 +28,12 @@ enum DesignSystem {
         /// What the system reserves for the hidden titlebar. The header draws
         /// over this band; only the remainder is pushed down onto the content.
         static let titlebarBand: CGFloat = 32
-        /// Clears the standard traffic-light cluster (x 9…69) plus an 8pt gap.
-        static let trafficLightInset: CGFloat = 77
+        /// Clears the standard traffic-light cluster (x 9…69) plus breathing room.
+        static let trafficLightInset: CGFloat = 86
         static let statusBarHeight: CGFloat = 32
-        static let iconSize: CGFloat = 13
+        static let iconSize: CGFloat = 14
         static let searchIconSize: CGFloat = 11
-        static let titleSize: CGFloat = 13
+        static let titleSize: CGFloat = 15
         /// Gap between neighbouring standalone controls.
         static let controlGap: CGFloat = 10
         static let titleLeading: CGFloat = 12
