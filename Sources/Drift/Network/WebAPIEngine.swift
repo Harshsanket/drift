@@ -32,6 +32,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     private var consecutiveFailures = 0
     private var didLogFirstTick = false
     private var lastLoggedCount = -1
+    private var isFetching = false
 
     var onUpdate: (@MainActor () -> Void)?
 
@@ -154,6 +155,13 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     }
 
     private func syncOnce() async throws {
+        let acquired = lock.withLock { () -> Bool in
+            if isFetching { return false }
+            isFetching = true
+            return true
+        }
+        guard acquired else { return }
+        defer { lock.withLock { isFetching = false } }
         let rid = lock.withLock { lastRid }
 
         var components = URLComponents(
@@ -262,33 +270,167 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         return TorrentDetails(general: general, trackers: [], peers: [], webSeeds: [], files: files)
     }
 
-    // MARK: - TorrentEngine mutations (deferred to Phase 8)
+    // MARK: - TorrentEngine mutations
 
     func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {
-        writeProbeLog("[engine] real add deferred to Phase 8")
-        return TorrentSummary(
-            id: "real-" + UUID().uuidString.prefix(8),
-            name: "New torrent",
-            status: .downloading,
-            progress: 0,
-            size: 0,
-            downloadSpeed: 0,
-            uploadSpeed: 0,
-            eta: nil,
-            tags: []
-        )
+        let summary = Self.placeholderSummary(for: source)
+        writeProbeLog("[engine] real add id=\(summary.id) name=\(summary.name) savePath=\(savePath)")
+        Task {
+            do {
+                try await postAdd(source: source, savePath: savePath)
+                try? await syncOnce()
+            } catch {
+                writeProbeLog("[engine] real add failed: \(describe(error))")
+            }
+        }
+        return summary
     }
 
     func start(ids: [String]) {
-        writeProbeLog("[engine] real start deferred to Phase 8")
+        guard !ids.isEmpty else { return }
+        writeProbeLog("[engine] real start ids=\(ids.sorted().joined(separator: ","))")
+        Task {
+            do {
+                try await postForm(path: "torrents/start", items: [("hashes", Self.hashParam(ids))])
+                try? await syncOnce()
+            } catch {
+                writeProbeLog("[engine] real start failed: \(describe(error))")
+            }
+        }
     }
 
     func stop(ids: [String]) {
-        writeProbeLog("[engine] real stop deferred to Phase 8")
+        guard !ids.isEmpty else { return }
+        writeProbeLog("[engine] real stop ids=\(ids.sorted().joined(separator: ","))")
+        Task {
+            do {
+                try await postForm(path: "torrents/stop", items: [("hashes", Self.hashParam(ids))])
+                try? await syncOnce()
+            } catch {
+                writeProbeLog("[engine] real stop failed: \(describe(error))")
+            }
+        }
     }
 
     func remove(ids: [String], deleteFiles: Bool) {
-        writeProbeLog("[engine] real remove deferred to Phase 8")
+        guard !ids.isEmpty else { return }
+        writeProbeLog("[engine] real remove ids=\(ids.sorted().joined(separator: ",")) deleteFiles=\(deleteFiles)")
+        Task {
+            do {
+                try await postForm(path: "torrents/delete", items: [
+                    ("hashes", Self.hashParam(ids)),
+                    ("deleteFiles", deleteFiles ? "true" : "false")
+                ])
+                try? await syncOnce()
+            } catch {
+                writeProbeLog("[engine] real remove failed: \(describe(error))")
+            }
+        }
+    }
+
+    private static func hashParam(_ ids: [String]) -> String {
+        ids.sorted().joined(separator: "|")
+    }
+
+    private static func placeholderSummary(for source: AddSource) -> TorrentSummary {
+        switch source {
+        case .magnetOrURL(let text):
+            if let hash = magnetHash(in: text) {
+                let name = magnetName(in: text) ?? "Magnet link"
+                return TorrentSummary(
+                    id: hash, name: name, status: .downloading, progress: 0, size: 0,
+                    downloadSpeed: 0, uploadSpeed: 0, eta: nil, tags: []
+                )
+            }
+            return TorrentSummary(
+                id: "adding-" + String(UUID().uuidString.prefix(8)),
+                name: magnetName(in: text) ?? "New torrent",
+                status: .downloading, progress: 0, size: 0,
+                downloadSpeed: 0, uploadSpeed: 0, eta: nil, tags: []
+            )
+        case .torrentFile(let url):
+            return TorrentSummary(
+                id: "adding-" + String(UUID().uuidString.prefix(8)),
+                name: url.deletingPathExtension().lastPathComponent,
+                status: .downloading, progress: 0, size: 0,
+                downloadSpeed: 0, uploadSpeed: 0, eta: nil, tags: []
+            )
+        }
+    }
+
+    private static func magnetHash(in text: String) -> String? {
+        guard let xtRange = text.range(of: "xt=urn:btih:", options: .caseInsensitive) else { return nil }
+        let hash = text[xtRange.upperBound...].prefix { $0.isHexDigit }
+        return hash.count == 40 ? String(hash).lowercased() : nil
+    }
+
+    private static func magnetName(in text: String) -> String? {
+        guard let dnRange = text.range(of: "dn=", options: .caseInsensitive) else { return nil }
+        let raw = text[dnRange.upperBound...].prefix { $0 != "&" && $0 != "#" }
+        guard !raw.isEmpty else { return nil }
+        return raw.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? String(raw)
+    }
+
+    private func postForm(path: String, items: [(String, String)]) async throws {
+        var request = URLRequest(url: base.appendingPathComponent("api/v2/\(path)"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(Self.form(items).utf8)
+        let (_, response) = try await send(request)
+        try Self.requireOK(response)
+    }
+
+    private func postAdd(source: AddSource, savePath: String) async throws {
+        var request = URLRequest(url: base.appendingPathComponent("api/v2/torrents/add"))
+        request.httpMethod = "POST"
+        switch source {
+        case .magnetOrURL(let text):
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data(Self.form([("urls", text), ("savepath", savePath)]).utf8)
+        case .torrentFile(let url):
+            let data = try Data(contentsOf: url)
+            let boundary = "DriftBoundary-\(UUID().uuidString)"
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            var body = Data()
+            let field = { (name: String, value: String) in
+                body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+            }
+            field("savepath", savePath)
+            body.append(Data(
+                "--\(boundary)\r\nContent-Disposition: form-data; name=\"torrents\"; filename=\"\(url.lastPathComponent)\"\r\n\r\n"
+                    .utf8
+            ))
+            body.append(data)
+            body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+            request.httpBody = body
+        }
+        let (data, response) = try await send(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw WebAPIError.network("No HTTP response")
+        }
+        if http.statusCode == 409 {
+            throw WebAPIError.network("Torrent already exists")
+        }
+        if http.statusCode == 400 || http.statusCode == 415 {
+            let message = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw WebAPIError.network(
+                (message?.isEmpty == false) ? message! : "Could not read torrent data"
+            )
+        }
+        try Self.requireOK(response)
+    }
+
+    private static func requireOK(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw WebAPIError.network("No HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw WebAPIError.authFailed
+            }
+            throw WebAPIError.badStatus(http.statusCode)
+        }
     }
 
     // MARK: - Mapping

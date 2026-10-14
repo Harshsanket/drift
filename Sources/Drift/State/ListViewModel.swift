@@ -46,6 +46,7 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
 @Observable
 final class ListViewModel {
     private var engine: TorrentEngine
+    var isRealBackend: Bool { engine is WebAPIEngine }
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []

@@ -106,6 +106,53 @@ struct ContentView: View {
                     model.requestRemoval([alertID])
                 }
             }
+            // Verification-only: --test-mutations drives start/stop/remove/add
+            // against the real backend once --test-sync has connected.
+            if ProcessInfo.processInfo.arguments.contains("--test-mutations") {
+                Task { @MainActor in
+                    for _ in 0..<40 {
+                        if model.isRealBackend { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    guard model.isRealBackend else {
+                        writeProbeLog("[engine] mutations skipped (mock backend)")
+                        return
+                    }
+                    var stoppedTarget: String?
+                    if let running = model.torrents.first(where: { $0.status != .stopped }) {
+                        stoppedTarget = running.id
+                        model.stopTorrents([running.id])
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                    if let stopped = model.torrents.first(where: {
+                        $0.status == .stopped && $0.id != stoppedTarget
+                    }) {
+                        model.startTorrents([stopped.id])
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                    model.confirmAdd(
+                        source: .magnetOrURL("magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc&dn=drift-added-test"),
+                        savePath: "~/Downloads"
+                    )
+                    try? await Task.sleep(for: .seconds(2.5))
+                    if model.torrents.contains(where: { $0.id == "cccccccccccccccccccccccccccccccccccccccc" }) {
+                        model.requestRemoval(["cccccccccccccccccccccccccccccccccccccccc"])
+                        model.confirmRemoval()
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                    if let ubuntu = model.torrents.first(where: { $0.name.contains("ubuntu-24.04") }) {
+                        model.requestRemoval([ubuntu.id])
+                        model.confirmRemoval()
+                    }
+                    try? await Task.sleep(for: .seconds(2))
+                    model.confirmAdd(
+                        source: .torrentFile(URL(fileURLWithPath: "/tmp/qbt-ubuntu.torrent")),
+                        savePath: "~/Downloads"
+                    )
+                    try? await Task.sleep(for: .seconds(2.5))
+                    writeProbeLog("[engine] mutations sequence done")
+                }
+            }
             // Verification-only: --show-connection-sheet opens the connection
             // sheet; --test-connection pings the stored endpoint (or
             // DRIFT_TEST_PASSWORD override) so the result is log-verifiable.
@@ -140,7 +187,7 @@ struct ContentView: View {
                         passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
                     )
                     var last = ""
-                    for _ in 0..<10 {
+                    for _ in 0..<20 {
                         try? await Task.sleep(for: .seconds(1.5))
                         let row = model.filtered.first
                         let snap = row.map {
