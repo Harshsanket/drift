@@ -21,6 +21,11 @@ let package = Package(
                     "-Xlinker", "\(Context.packageDirectory)/Support/Info.plist",
                 ])
             ]
+        ),
+        .testTarget(
+            name: "DriftTests",
+            dependencies: ["Drift"],
+            path: "Tests/DriftTests"
         )
     ]
 )

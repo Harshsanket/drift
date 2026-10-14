@@ -355,14 +355,16 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
         let down = (serverState["dl_info_speed"] as? NSNumber)?.doubleValue ?? 0
         let up = (serverState["up_info_speed"] as? NSNumber)?.doubleValue ?? 0
-        if down > 0 || up > 0 { return true }
+        let states = rawTorrents.values.compactMap { $0["state"] as? String }
+        return Self.transferActivity(dl: down, up: up, states: states)
+    }
 
+    static func transferActivity(dl: Double, up: Double, states: [String]) -> Bool {
+        if dl > 0 || up > 0 { return true }
         let activeStates: Set<String> = [
             "downloading", "forcedDL", "metaDL", "uploading", "forcedUP",
         ]
-        return rawTorrents.values.contains { fields in
-            activeStates.contains(fields["state"] as? String ?? "")
-        }
+        return states.contains { activeStates.contains($0) }
     }
 
     func loadDetails(for id: String) -> TorrentDetails {

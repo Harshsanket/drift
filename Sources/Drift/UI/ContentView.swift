@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @Bindable var model: ListViewModel
@@ -343,6 +344,49 @@ struct ContentView: View {
                     settings.preventIdleSleep = false
                     try? await Task.sleep(for: .seconds(1))
                     writeProbeLog("[power] sequence done")
+                }
+            }
+            // Verification-only: --bench <mode> parks the app in a stable
+            // tier for benchmarks/measure.sh (Phase 14):
+            //   active    — window visible, item on  (.active tier)
+            //   summary   — window hidden, item on   (.summary tier)
+            //   suspended — window hidden, item off  (sync suspended)
+            //   power     — summary + sleep-prevention ON (assertion held)
+            if let idx = ProcessInfo.processInfo.arguments.firstIndex(of: "--bench"),
+                idx + 1 < ProcessInfo.processInfo.arguments.count
+            {
+                let mode = ProcessInfo.processInfo.arguments[idx + 1]
+                Task { @MainActor in
+                    writeProbeLog("[bench] mode=\(mode) start")
+                    await model.connectRealBackend(
+                        force: true,
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    guard model.isRealBackend else {
+                        writeProbeLog("[bench] skipped (connect failed)")
+                        return
+                    }
+                    switch mode {
+                    case "active":
+                        AppSettings.shared.showMenuBarItem = true
+                        model.setWindowVisible(true)
+                    case "summary", "suspended", "power":
+                        AppSettings.shared.showMenuBarItem = mode != "suspended"
+                        if mode == "power" {
+                            AppSettings.shared.preventIdleSleep = true
+                        }
+                        model.setWindowVisible(false)
+                        // Physically leave the screen too — otherwise the
+                        // occlusion probe sees the window and flips the
+                        // tier back to active.
+                        for window in NSApp.windows {
+                            window.orderOut(nil)
+                        }
+                    default:
+                        writeProbeLog("[bench] unknown mode \(mode)")
+                        return
+                    }
+                    writeProbeLog("[bench] mode=\(mode) ready")
                 }
             }
             // Verification-only: --show-connection-sheet opens the connection

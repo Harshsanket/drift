@@ -1,5 +1,6 @@
 # Internal private documentation — never publish (path-specific; no blanket *.md rule)
 docs-internal/
+.freebuff/
 
 # macOS
 .DS_Store
@@ -20,3 +21,6 @@ build/
 *.pem
 *.key
 local-config/
+
+# Release artifacts (built, not committed)
+dist/
