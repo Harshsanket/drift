@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var model: ListViewModel
     @FocusState private var filterFocused: Bool
+    @State private var sidebarWidth: CGFloat = SidebarWidthPreference.defaultValue
 
     private var footerRadius: CGFloat {
         model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
@@ -45,6 +46,9 @@ struct ContentView: View {
                     .background(Color(nsColor: .windowBackgroundColor))
             }
             .tint(DesignSystem.Palette.accent)
+            .onPreferenceChange(SidebarWidthPreference.self) { width in
+                sidebarWidth = width
+            }
 
             header.ignoresSafeArea(.container, edges: .top)
         }
@@ -52,15 +56,31 @@ struct ContentView: View {
         .background(TransparentWindowAttachment())
     }
 
-    /// One continuous titlebar row: traffic lights, sidebar toggle and title on
-    /// the left, independently separated capsule controls on the right.
+    /// One continuous titlebar row: traffic lights alone on the left (the app
+    /// title sits above the table's Name/Status columns), independently
+    /// separated capsule controls on the right.
     private var header: some View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
-                HeaderLeadingControls()
-                    .simultaneousGesture(TapGesture().onEnded {
-                        model.collapseDetailsFromOutsideClick()
-                    })
+                HStack(spacing: 0) {
+                    HeaderLeadingControls()
+
+                    Text("Drift")
+                        .font(.system(size: DesignSystem.Metrics.titleSize, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.leading, max(
+                            0,
+                            sidebarWidth
+                                - DesignSystem.Metrics.trafficLightInset
+                                + DesignSystem.Metrics.titleLeading
+                        ))
+                }
+                .frame(height: DesignSystem.Metrics.headerHeight)
+                .simultaneousGesture(TapGesture().onEnded {
+                    model.collapseDetailsFromOutsideClick()
+                })
+
                 Spacer(minLength: DesignSystem.Metrics.controlGap)
                 HeaderTrailingControls(
                     model: model,

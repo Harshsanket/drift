@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum SidebarWidthPreference: PreferenceKey {
+    static let defaultValue: CGFloat = 210
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct SidebarView: View {
     @Bindable var model: ListViewModel
 
@@ -23,14 +30,18 @@ struct SidebarView: View {
                 }
             }
 
-            Section("Categories") {
-                Text("No categories")
-                    .foregroundStyle(.tertiary)
+            if model.showCategories {
+                Section("Categories") {
+                    Text("No categories")
+                        .foregroundStyle(.tertiary)
+                }
             }
 
-            Section("Tags") {
-                Text("No tags")
-                    .foregroundStyle(.tertiary)
+            if model.showTags {
+                Section("Tags") {
+                    Text("No tags")
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .listStyle(.sidebar)
@@ -42,5 +53,11 @@ struct SidebarView: View {
         // and this blur samples what is behind it, so the wallpaper reads through.
         .scrollContentBackground(.hidden)
         .background(BehindWindowBlur())
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(key: SidebarWidthPreference.self, value: geo.size.width)
+            }
+        }
     }
 }

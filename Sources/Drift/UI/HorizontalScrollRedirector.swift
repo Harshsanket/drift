@@ -12,13 +12,14 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
 
     func updateNSView(_ nsView: Probe, context: Context) {
         nsView.model = model
-        nsView.publishWidth()
+        nsView.publishMetrics()
     }
 
     final class Probe: NSView {
         weak var model: ListViewModel?
         private var monitor: Any?
-        private var lastPublishedWidth: CGFloat = 0
+        private var lastPublishedWidths: [CGFloat] = []
+        private var lastPublishedRowHeight: CGFloat = 0
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -34,15 +35,23 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            publishWidth()
+            publishMetrics()
         }
 
-        func publishWidth() {
-            guard let model, let scrollView = tableScrollView() else { return }
-            let width = scrollView.documentView?.frame.width ?? 0
-            guard width > 0, abs(width - lastPublishedWidth) > 0.5 else { return }
-            lastPublishedWidth = width
-            model.tableContentWidth = width
+        func publishMetrics() {
+            guard let model, let scrollView = tableScrollView(),
+                  let table = scrollView.documentView as? NSTableView
+            else { return }
+            let widths = table.tableColumns.map(\.width)
+            let rowHeight = table.rowHeight
+            if widths != lastPublishedWidths {
+                lastPublishedWidths = widths
+                model.columnWidths = widths
+            }
+            if rowHeight > 0, abs(rowHeight - lastPublishedRowHeight) > 0.5 {
+                lastPublishedRowHeight = rowHeight
+                model.tableRowHeight = rowHeight
+            }
         }
 
         private func handle(_ event: NSEvent) -> NSEvent? {
@@ -62,7 +71,6 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
             origin.x = max(0, min(origin.x, clip.documentRect.width - clip.bounds.width))
             clip.scroll(to: origin)
             target.reflectScrolledClipView(clip)
-            publishWidth()
             return nil
         }
 

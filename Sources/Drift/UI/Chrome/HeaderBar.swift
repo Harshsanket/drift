@@ -71,23 +71,17 @@ struct CapsuleIconButton: View {
     }
 }
 
-// MARK: - Titlebar leading: traffic lights and app title
+// MARK: - Titlebar leading: traffic lights
 
 /// Occupies the leading edge of the titlebar strip, directly after the native
-/// traffic lights. The sidebar is permanent, so there is no toggle here.
+/// traffic lights. The sidebar is permanent, so there is no toggle here, and
+/// the app title lives above the torrent table's first columns instead.
 struct HeaderLeadingControls: View {
     var body: some View {
         HStack(spacing: 0) {
             // Reserve the traffic-light cluster without swallowing its clicks.
             Color.clear
                 .frame(width: DesignSystem.Metrics.trafficLightInset)
-                .allowsHitTesting(false)
-
-            Text("Drift")
-                .font(.system(size: DesignSystem.Metrics.titleSize, weight: .semibold))
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.leading, DesignSystem.Metrics.titleLeading)
                 .allowsHitTesting(false)
         }
         .frame(height: DesignSystem.Metrics.headerHeight)
@@ -298,6 +292,11 @@ private struct MoreOptionsMenu: View {
                     }
                 }
             ))
+
+            Divider()
+
+            Toggle("Show Categories", isOn: $model.showCategories)
+            Toggle("Show Tags", isOn: $model.showTags)
 
             Divider()
 

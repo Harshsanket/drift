@@ -62,10 +62,15 @@ final class ListViewModel {
     var sortOrder: [KeyPathComparator<TorrentSummary>] = []
     var columnCustomization = TableColumnCustomization<TorrentSummary>()
     var selectedTab: DetailTab = .general
-    var tableContentWidth: CGFloat = 900
+    var columnWidths: [CGFloat] = [200, 100, 160, 84, 84, 84, 80, 80]
+    var tableRowHeight: CGFloat = 26
+    var showCategories = false
+    var showTags = false
     private var detailsCache: [String: TorrentDetails] = [:]
     private var selectionAnchor: String?
     private var lastAutoCollapse = Date.distantPast
+    private var lastClickID: String?
+    private var lastClickAt = Date.distantPast
 
     init(provider: TorrentProviding = MockTorrentProvider()) {
         self.provider = provider
@@ -85,6 +90,39 @@ final class ListViewModel {
         withAnimation(.spring(duration: 0.35)) {
             detailsCollapsed = true
         }
+    }
+
+    /// A single table-cell click. Two taps on the same row within the
+    /// double-click window toggle the details panel; each standalone tap
+    /// selects and collapses like a click anywhere else.
+    func cellClicked(_ id: String) {
+        let now = Date()
+        if lastClickID == id, now.timeIntervalSince(lastClickAt) < 0.3 {
+            lastClickID = nil
+            lastClickAt = .distantPast
+            toggleDetails()
+            return
+        }
+        lastClickID = id
+        lastClickAt = now
+        rowClicked(id)
+        collapseDetailsFromOutsideClick()
+    }
+
+    private static let columnVisibilityIDs = [
+        "", "status", "progress", "size", "downloadSpeed", "uploadSpeed", "eta", "timeActive"
+    ]
+
+    /// Canonical index of the last visible column, so its row-backdrop slice
+    /// can round the capsule's trailing end.
+    func isLastVisibleColumn(_ index: Int) -> Bool {
+        let ids = Self.columnVisibilityIDs
+        for i in stride(from: ids.count - 1, through: 0, by: -1) {
+            if ids[i].isEmpty || columnCustomization[visibility: ids[i]] != .hidden {
+                return i == index
+            }
+        }
+        return index == 0
     }
 
     func rowClicked(_ id: String) {
