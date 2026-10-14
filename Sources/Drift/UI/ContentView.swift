@@ -66,6 +66,24 @@ struct ContentView: View {
         }
         .navigationTitle("Drift")
         .background(TransparentWindowAttachment())
+        .sheet(isPresented: $model.showAddSheet) {
+            AddTorrentSheet(model: model)
+        }
+        .onAppear {
+            // Verification-only: --show-add-sheet opens the sheet at launch;
+            // --test-add runs the add pipeline directly (logic check without typing).
+            if ProcessInfo.processInfo.arguments.contains("--show-add-sheet") {
+                model.showAddSheet = true
+            }
+            if ProcessInfo.processInfo.arguments.contains("--test-add") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    model.confirmAdd(
+                        source: .magnetOrURL("magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=Test+Added+Torrent&xl=1234567890"),
+                        savePath: "~/Downloads"
+                    )
+                }
+            }
+        }
     }
 
     /// One continuous titlebar row: traffic lights alone on the left (the app

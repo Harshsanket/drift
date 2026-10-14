@@ -105,10 +105,10 @@ struct HeaderTrailingControls: View {
             CapsuleIconButton(
                 systemImage: "plus",
                 title: "Add Torrent",
-                help: "Add torrent (Phase 4)",
-                action: {}
+                help: "Add torrent",
+                action: { model.showAddSheet = true }
             )
-            .disabled(true)
+            .keyboardShortcut("o", modifiers: .command)
 
             TransportControls()
 

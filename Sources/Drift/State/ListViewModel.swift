@@ -5,6 +5,12 @@ import Observation
 protocol TorrentProviding: Sendable {
     func loadTorrents() -> [TorrentSummary]
     func loadDetails(for id: String) -> TorrentDetails
+    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary
+}
+
+enum AddSource: Sendable {
+    case magnetOrURL(String)
+    case torrentFile(URL)
 }
 
 enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
@@ -63,6 +69,7 @@ final class ListViewModel {
     var selectedTab: DetailTab = .general
     var showCategories = false
     var showTags = false
+    var showAddSheet = false
     private var detailsCache: [String: TorrentDetails] = [:]
     private var lastAutoCollapse = Date.distantPast
 
@@ -131,5 +138,13 @@ final class ListViewModel {
 
     func refresh() {
         torrents = provider.loadTorrents()
+    }
+
+    func confirmAdd(source: AddSource, savePath: String) {
+        let summary = provider.addTorrent(source: source, savePath: savePath)
+        refresh()
+        selectedIDs = [summary.id]
+        showAddSheet = false
+        writeProbeLog("[sheet] added \(summary.id) savePath=\(savePath)")
     }
 }
