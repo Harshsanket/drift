@@ -108,6 +108,29 @@ struct TorrentListView: View {
                 }
             }
         }
+        .alert(
+            "Remove Torrent?",
+            isPresented: Binding(
+                get: { model.pendingRemoval != nil },
+                set: { if !$0 { model.cancelRemoval() } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                model.confirmRemoval()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(removalMessage)
+        }
+    }
+
+    private var removalMessage: String {
+        guard let ids = model.pendingRemoval else { return "" }
+        if ids.count == 1, let id = ids.first,
+           let torrent = model.torrents.first(where: { $0.id == id }) {
+            return "“\(torrent.name)” will be removed."
+        }
+        return "\(ids.count) torrents will be removed."
     }
 }
 
@@ -132,23 +155,28 @@ private struct TorrentRowMenu: View {
     let torrent: TorrentSummary
 
     var body: some View {
-        Button(action: {}) {
+        Button {
+            model.startTorrents([torrent.id])
+        } label: {
             Label("Start", systemImage: "play.fill")
         }
-        .disabled(true)
-        .help("Start — wired in Phase 5")
+        .disabled(torrent.status != .stopped)
+        .help("Start")
 
-        Button(action: {}) {
+        Button {
+            model.stopTorrents([torrent.id])
+        } label: {
             Label("Stop", systemImage: "pause.fill")
         }
-        .disabled(true)
-        .help("Stop — wired in Phase 5")
+        .disabled(torrent.status == .stopped)
+        .help("Stop")
 
-        Button(action: {}) {
+        Button {
+            model.requestRemoval([torrent.id])
+        } label: {
             Label("Remove", systemImage: "trash")
         }
-        .disabled(true)
-        .help("Remove — wired in Phase 8")
+        .help("Remove")
 
         Divider()
 

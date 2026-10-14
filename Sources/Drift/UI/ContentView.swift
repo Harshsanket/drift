@@ -84,6 +84,25 @@ struct ContentView: View {
                     )
                 }
             }
+            // Verification-only: --test-actions runs the mutation pipeline
+            // (stop, start, remove), then opens the removal confirmation.
+            if ProcessInfo.processInfo.arguments.contains("--test-actions") {
+                let torrents = model.torrents
+                guard torrents.count >= 8 else { return }
+                let stopID = torrents[0].id
+                let startID = torrents[3].id
+                let removeID = torrents[4].id
+                let alertID = torrents[6].id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    model.stopTorrents([stopID])
+                    model.startTorrents([startID])
+                    model.requestRemoval([removeID])
+                    model.confirmRemoval()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                    model.requestRemoval([alertID])
+                }
+            }
         }
     }
 

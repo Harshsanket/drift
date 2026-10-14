@@ -2,17 +2,6 @@ import Foundation
 import SwiftUI
 import Observation
 
-protocol TorrentProviding: Sendable {
-    func loadTorrents() -> [TorrentSummary]
-    func loadDetails(for id: String) -> TorrentDetails
-    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary
-}
-
-enum AddSource: Sendable {
-    case magnetOrURL(String)
-    case torrentFile(URL)
-}
-
 enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
     case all
     case downloading
@@ -56,7 +45,7 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
 @MainActor
 @Observable
 final class ListViewModel {
-    private let provider: TorrentProviding
+    private let engine: TorrentEngine
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
@@ -70,11 +59,12 @@ final class ListViewModel {
     var showCategories = false
     var showTags = false
     var showAddSheet = false
+    var pendingRemoval: Set<String>?
     private var detailsCache: [String: TorrentDetails] = [:]
     private var lastAutoCollapse = Date.distantPast
 
-    init(provider: TorrentProviding = MockTorrentProvider()) {
-        self.provider = provider
+    init(engine: TorrentEngine = MockTorrentEngine()) {
+        self.engine = engine
         refresh()
     }
 
@@ -119,7 +109,7 @@ final class ListViewModel {
 
     func details(for id: String) -> TorrentDetails {
         if let cached = detailsCache[id] { return cached }
-        let details = provider.loadDetails(for: id)
+        let details = engine.loadDetails(for: id)
         detailsCache[id] = details
         return details
     }
@@ -137,14 +127,65 @@ final class ListViewModel {
     }
 
     func refresh() {
-        torrents = provider.loadTorrents()
+        detailsCache.removeAll()
+        torrents = engine.loadTorrents()
     }
 
     func confirmAdd(source: AddSource, savePath: String) {
-        let summary = provider.addTorrent(source: source, savePath: savePath)
+        let summary = engine.addTorrent(source: source, savePath: savePath)
         refresh()
         selectedIDs = [summary.id]
         showAddSheet = false
         writeProbeLog("[sheet] added \(summary.id) savePath=\(savePath)")
+    }
+
+    func startTorrents(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        engine.start(ids: ids)
+        refresh()
+        writeProbeLog("[engine] start ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    func stopTorrents(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        engine.stop(ids: ids)
+        refresh()
+        writeProbeLog("[engine] stop ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    func requestRemoval(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        pendingRemoval = Set(ids)
+        writeProbeLog("[engine] removal requested ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    func cancelRemoval() {
+        pendingRemoval = nil
+        writeProbeLog("[engine] removal cancelled")
+    }
+
+    func confirmRemoval() {
+        guard let ids = pendingRemoval, !ids.isEmpty else { return }
+        engine.remove(ids: Array(ids), deleteFiles: false)
+        selectedIDs.subtract(ids)
+        pendingRemoval = nil
+        refresh()
+        writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    var canPauseAll: Bool {
+        torrents.contains { $0.status != .stopped }
+    }
+
+    var canResumeAll: Bool {
+        torrents.contains { $0.status == .stopped }
+    }
+
+    func pauseAll() {
+        stopTorrents(torrents.filter { $0.status != .stopped }.map(\.id))
+    }
+
+    func resumeAll() {
+        startTorrents(torrents.filter { $0.status == .stopped }.map(\.id))
     }
 }

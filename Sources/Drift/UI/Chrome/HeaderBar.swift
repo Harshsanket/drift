@@ -110,7 +110,7 @@ struct HeaderTrailingControls: View {
             )
             .keyboardShortcut("o", modifiers: .command)
 
-            TransportControls()
+            TransportControls(model: model)
 
             FilterField(
                 text: $model.searchText,
@@ -166,20 +166,42 @@ struct HeaderFit {
 
 /// A single compact capsule holding two independently interactive segments.
 private struct TransportControls: View {
+    let model: ListViewModel
+
     var body: some View {
         HStack(spacing: 0) {
-            segment(systemImage: "pause.fill", title: "Pause all", help: "Pause all (Phase 5)")
+            segment(
+                systemImage: "pause.fill",
+                title: "Pause all",
+                help: "Pause all",
+                enabled: model.canPauseAll
+            ) {
+                model.pauseAll()
+            }
             Rectangle()
                 .fill(Color.primary.opacity(0.12))
                 .frame(width: DesignSystem.Metrics.hairline, height: 13)
-            segment(systemImage: "play.fill", title: "Resume all", help: "Resume all (Phase 5)")
+            segment(
+                systemImage: "play.fill",
+                title: "Resume all",
+                help: "Resume all",
+                enabled: model.canResumeAll
+            ) {
+                model.resumeAll()
+            }
         }
         .capsuleSurface()
         .clipShape(Capsule(style: .continuous))
     }
 
-    private func segment(systemImage: String, title: String, help: String) -> some View {
-        Button(action: {}) {
+    private func segment(
+        systemImage: String,
+        title: String,
+        help: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: DesignSystem.Metrics.iconSize, weight: .medium))
                 .frame(
@@ -191,7 +213,7 @@ private struct TransportControls: View {
         .buttonStyle(TransportSegmentStyle())
         .help(help)
         .accessibilityLabel(title)
-        .disabled(true)
+        .disabled(!enabled)
     }
 }
 
