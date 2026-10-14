@@ -31,7 +31,8 @@ struct ContentView: View {
                     // the other order discards the width preference and the
                     // sidebar silently collapses to 144pt, truncating its labels.
                     .toolbar(removing: .sidebarToggle)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
+                    // Fixed width (min = max): the split divider is not draggable.
+                    .navigationSplitViewColumnWidth(210)
             } detail: {
                 TorrentListView(model: model)
                     .safeAreaInset(edge: .top, spacing: 0) {
