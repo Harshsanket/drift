@@ -153,6 +153,53 @@ struct ContentView: View {
                     writeProbeLog("[engine] mutations sequence done")
                 }
             }
+            // Verification-only: --test-details selects the first torrent,
+            // waits for the async details fetch, logs section counts, then
+            // flips the first file's priority (ignored → normal).
+            if ProcessInfo.processInfo.arguments.contains("--test-details") {
+                Task { @MainActor in
+                    for _ in 0..<40 {
+                        if model.isRealBackend { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    @MainActor func snapshot() {
+                        guard let details = model.selectedDetails else {
+                            writeProbeLog("[details] snapshot none")
+                            return
+                        }
+                        let prios = details.files.map(\.priority.rawValue).joined(separator: ",")
+                        writeProbeLog(
+                            "[details] snapshot trackers=\(details.trackers.count)"
+                                + " peers=\(details.peers.count)"
+                                + " webSeeds=\(details.webSeeds.count)"
+                                + " files=\(details.files.count)"
+                                + " status=\(details.trackers.first?.status ?? "-")"
+                                + " prio=[\(prios)]"
+                        )
+                    }
+                    guard let first = model.torrents.first(where: { $0.name.contains("ubuntu") })
+                        ?? model.torrents.first
+                    else {
+                        writeProbeLog("[details] skipped (no torrents)")
+                        return
+                    }
+                    model.selectedIDs = [first.id]
+                    model.detailsCollapsed = false
+                    try? await Task.sleep(for: .seconds(2.5))
+                    snapshot()
+                    if let file = model.selectedDetails?.files.first {
+                        model.setFilePriority(file: file, priority: .ignored)
+                        try? await Task.sleep(for: .seconds(2.5))
+                        snapshot()
+                        if let fileNow = model.selectedDetails?.files.first {
+                            model.setFilePriority(file: fileNow, priority: .normal)
+                            try? await Task.sleep(for: .seconds(2))
+                            snapshot()
+                        }
+                    }
+                    writeProbeLog("[details] sequence done")
+                }
+            }
             // Verification-only: --show-connection-sheet opens the connection
             // sheet; --test-connection pings the stored endpoint (or
             // DRIFT_TEST_PASSWORD override) so the result is log-verifiable.

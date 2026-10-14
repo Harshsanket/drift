@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FilesTabView: View {
     let rows: [FileRow]
+    var onPriority: (FileRow, FilePriority) -> Void = { _, _ in }
 
     var body: some View {
         if rows.isEmpty {
@@ -28,12 +29,28 @@ struct FilesTabView: View {
                 .width(80)
 
                 TableColumn("Priority") { row in
-                    Text(row.priority.rawValue)
-                        .font(.caption)
-                        .padding(.horizontal, DesignSystem.Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.quaternary))
-                        .foregroundStyle(row.priority == .ignored ? .tertiary : .secondary)
+                    Menu {
+                        ForEach(FilePriority.allCases, id: \.self) { priority in
+                            Button {
+                                onPriority(row, priority)
+                            } label: {
+                                if priority == row.priority {
+                                    Label(priority.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(priority.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(row.priority.rawValue)
+                            .font(.caption)
+                            .padding(.horizontal, DesignSystem.Spacing.xs)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.quaternary))
+                            .foregroundStyle(row.priority == .ignored ? .tertiary : .secondary)
+                    }
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                 }
                 .width(90)
             }

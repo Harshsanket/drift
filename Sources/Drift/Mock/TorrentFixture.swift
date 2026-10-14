@@ -272,12 +272,12 @@ enum TorrentFixture {
                 FileRow(name: "\(torrent.name)/images/boot.iso", size: boot, progress: torrent.progress, priority: .high),
                 FileRow(name: "\(torrent.name)/images/live.iso", size: main, progress: torrent.progress, priority: .maximum),
                 FileRow(name: "\(torrent.name)/CHECKSUM", size: checksums, progress: torrent.progress, priority: .normal),
-                FileRow(name: "\(torrent.name)/LICENSE", size: license, progress: torrent.progress, priority: .low)
+                FileRow(name: "\(torrent.name)/LICENSE", size: license, progress: torrent.progress, priority: .normal)
             ]
         }
         if torrent.status == .stopped {
             return [
-                FileRow(name: torrent.name, size: torrent.size, progress: torrent.progress, priority: .low)
+                FileRow(name: torrent.name, size: torrent.size, progress: torrent.progress, priority: .normal)
             ]
         }
         return [

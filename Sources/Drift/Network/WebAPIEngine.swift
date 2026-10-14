@@ -247,6 +247,48 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     }
 
     func loadDetails(for id: String) -> TorrentDetails {
+        let (general, summary) = detailsBase(for: id)
+        let files = [
+            FileRow(name: summary.name, size: summary.size, progress: summary.progress, priority: .normal)
+        ]
+        return TorrentDetails(general: general, trackers: [], peers: [], webSeeds: [], files: files)
+    }
+
+    func fetchDetails(for id: String) async -> TorrentDetails {
+        let (general, summary) = detailsBase(for: id)
+        async let trackers = trackerRows(hash: id)
+        async let peers = peerRows(hash: id)
+        async let webSeeds = webSeedRows(hash: id)
+        async let fetchedFiles = fileRows(hash: id)
+        var files = await fetchedFiles
+        if files.isEmpty {
+            files = [FileRow(name: summary.name, size: summary.size, progress: summary.progress, priority: .normal)]
+        }
+        return TorrentDetails(
+            general: general,
+            trackers: await trackers,
+            peers: await peers,
+            webSeeds: await webSeeds,
+            files: files
+        )
+    }
+
+    func setFilePriority(id: String, fileIndex: Int, priority: FilePriority) {
+        writeProbeLog("[engine] real filePrio id=\(id.prefix(12)) file=\(fileIndex) -> \(priority.rawValue)")
+        Task {
+            do {
+                try await postForm(path: "torrents/filePrio", items: [
+                    ("hash", id),
+                    ("id", String(fileIndex)),
+                    ("priority", String(priority.apiValue))
+                ])
+            } catch {
+                writeProbeLog("[engine] real filePrio failed: \(describe(error))")
+            }
+        }
+    }
+
+    private func detailsBase(for id: String) -> (GeneralInfo, TorrentSummary) {
         lock.lock()
         let fields = rawTorrents[id] ?? [:]
         lock.unlock()
@@ -264,10 +306,117 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             piecesTotal: (fields["pieces_num"] as? NSNumber)?.intValue ?? 0,
             piecesHave: (fields["pieces_have"] as? NSNumber)?.intValue ?? 0
         )
-        let files = [
-            FileRow(name: summary.name, size: summary.size, progress: summary.progress, priority: .normal)
-        ]
-        return TorrentDetails(general: general, trackers: [], peers: [], webSeeds: [], files: files)
+        return (general, summary)
+    }
+
+    private func trackerRows(hash: String) async -> [TrackerRow] {
+        do {
+            let rows = try await fetchArray(path: "torrents/trackers", hash: hash)
+            return rows.map { row in
+                TrackerRow(
+                    url: (row["url"] as? String) ?? "",
+                    status: Self.trackerStatus((row["status"] as? NSNumber)?.intValue ?? -1),
+                    peers: max(0, (row["num_peers"] as? NSNumber)?.intValue ?? 0),
+                    seeds: max(0, (row["num_seeds"] as? NSNumber)?.intValue ?? 0),
+                    leeches: max(0, (row["num_leeches"] as? NSNumber)?.intValue ?? 0),
+                    downloaded: max(0, (row["num_downloaded"] as? NSNumber)?.int64Value ?? 0)
+                )
+            }
+        } catch {
+            writeProbeLog("[details] trackers failed: \(describe(error))")
+            return []
+        }
+    }
+
+    private static func trackerStatus(_ code: Int) -> String {
+        switch code {
+        case 0: "Disabled"
+        case 1: "Not contacted"
+        case 2: "Working"
+        case 4: "Not working"
+        case 5: "Tracker error"
+        case 6: "Unreachable"
+        default: "Unknown"
+        }
+    }
+
+    private func peerRows(hash: String) async -> [PeerRow] {
+        do {
+            let data = try await fetchData(
+                path: "sync/torrentPeers",
+                query: [URLQueryItem(name: "hash", value: hash)]
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let peers = json["peers"] as? [String: [String: Any]]
+            else { throw WebAPIError.notQBitTorrent }
+            return peers.values
+                .map { peer in
+                    let client = ((peer["client"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                        ?? (peer["peer_id_client"] as? String) ?? ""
+                    return PeerRow(
+                        ip: (peer["ip"] as? String) ?? "?",
+                        client: client,
+                        flags: (peer["flags"] as? String) ?? "",
+                        connection: (peer["connection"] as? String) ?? "",
+                        progress: (peer["progress"] as? NSNumber)?.doubleValue ?? 0,
+                        downSpeed: (peer["dl_speed"] as? NSNumber)?.int64Value ?? 0,
+                        upSpeed: (peer["up_speed"] as? NSNumber)?.int64Value ?? 0
+                    )
+                }
+                .sorted { $0.ip < $1.ip }
+        } catch {
+            writeProbeLog("[details] peers failed: \(describe(error))")
+            return []
+        }
+    }
+
+    private func webSeedRows(hash: String) async -> [WebSeedRow] {
+        do {
+            let rows = try await fetchArray(path: "torrents/webseeds", hash: hash)
+            return rows.compactMap { row in
+                (row["url"] as? String).map { WebSeedRow(url: $0) }
+            }
+        } catch {
+            writeProbeLog("[details] webseeds failed: \(describe(error))")
+            return []
+        }
+    }
+
+    private func fileRows(hash: String) async -> [FileRow] {
+        do {
+            let rows = try await fetchArray(path: "torrents/files", hash: hash)
+            return rows.map { row in
+                FileRow(
+                    name: (row["name"] as? String) ?? "",
+                    size: (row["size"] as? NSNumber)?.int64Value ?? 0,
+                    progress: (row["progress"] as? NSNumber)?.doubleValue ?? 0,
+                    priority: FilePriority(apiValue: (row["priority"] as? NSNumber)?.intValue ?? 1)
+                )
+            }
+        } catch {
+            writeProbeLog("[details] files failed: \(describe(error))")
+            return []
+        }
+    }
+
+    private func fetchArray(path: String, hash: String) async throws -> [[String: Any]] {
+        let data = try await fetchData(path: path, query: [URLQueryItem(name: "hash", value: hash)])
+        guard let array = try JSONSerialization.jsonObject(with: data) as? [Any] else {
+            throw WebAPIError.notQBitTorrent
+        }
+        return array.compactMap { $0 as? [String: Any] }
+    }
+
+    private func fetchData(path: String, query: [URLQueryItem]) async throws -> Data {
+        var components = URLComponents(
+            url: base.appendingPathComponent("api/v2/\(path)"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = query
+        guard let url = components?.url else { throw WebAPIError.invalidURL }
+        let (data, response) = try await send(URLRequest(url: url))
+        try Self.requireOK(response)
+        return data
     }
 
     // MARK: - TorrentEngine mutations

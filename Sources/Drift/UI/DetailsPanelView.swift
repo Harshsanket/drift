@@ -96,7 +96,9 @@ struct DetailsPanelView: View {
         case .sources:
             SourcesTabView(rows: details.webSeeds)
         case .files:
-            FilesTabView(rows: details.files)
+            FilesTabView(rows: details.files) { row, priority in
+                model.setFilePriority(file: row, priority: priority)
+            }
         }
     }
 }

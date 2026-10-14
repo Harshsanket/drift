@@ -3,6 +3,7 @@ import Foundation
 final class MockTorrentEngine: TorrentEngine, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [TorrentSummary]
+    private var detailsStore: [String: TorrentDetails] = [:]
 
     init() {
         store = TorrentFixture.torrents
@@ -16,11 +17,30 @@ final class MockTorrentEngine: TorrentEngine, @unchecked Sendable {
 
     func loadDetails(for id: String) -> TorrentDetails {
         lock.lock()
+        defer { lock.unlock() }
+        if let cached = detailsStore[id] { return cached }
         let torrent = store.first(where: { $0.id == id })
             ?? store.first
             ?? TorrentFixture.torrents[0]
-        lock.unlock()
-        return TorrentFixture.details(for: torrent)
+        let details = TorrentFixture.details(for: torrent)
+        detailsStore[id] = details
+        return details
+    }
+
+    func fetchDetails(for id: String) async -> TorrentDetails {
+        loadDetails(for: id)
+    }
+
+    func setFilePriority(id: String, fileIndex: Int, priority: FilePriority) {
+        lock.lock()
+        defer { lock.unlock() }
+        if detailsStore[id] == nil {
+            let torrent = store.first(where: { $0.id == id }) ?? store.first ?? TorrentFixture.torrents[0]
+            detailsStore[id] = TorrentFixture.details(for: torrent)
+        }
+        guard var details = detailsStore[id], fileIndex < details.files.count else { return }
+        details.files[fileIndex].priority = priority
+        detailsStore[id] = details
     }
 
     func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {

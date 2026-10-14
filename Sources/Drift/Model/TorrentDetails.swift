@@ -83,6 +83,24 @@ enum FilePriority: String, CaseIterable {
     case maximum = "Maximum"
     case high = "High"
     case normal = "Normal"
-    case low = "Low"
     case ignored = "Ignored"
+
+    /// qB 5.x DownloadPriority: Ignored=0, Normal=1, High=6, Maximum=7 (no Low).
+    var apiValue: Int {
+        switch self {
+        case .ignored: 0
+        case .normal: 1
+        case .high: 6
+        case .maximum: 7
+        }
+    }
+
+    init(apiValue: Int) {
+        switch apiValue {
+        case 0: self = .ignored
+        case 6: self = .high
+        case 7: self = .maximum
+        default: self = .normal
+        }
+    }
 }

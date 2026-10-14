@@ -63,6 +63,7 @@ final class ListViewModel {
     var showConnectionSheet = false
     var pendingRemoval: Set<String>?
     private var detailsCache: [String: TorrentDetails] = [:]
+    private var detailsFetching = false
     private var lastAutoCollapse = Date.distantPast
 
     init(engine: TorrentEngine? = nil) {
@@ -94,6 +95,7 @@ final class ListViewModel {
             }
             real.startSync()
             engine = real
+            detailsCache.removeAll()
             settings.noteConnected(version: version)
             refresh()
             writeProbeLog("[sync] connected \(version)")
@@ -145,9 +147,38 @@ final class ListViewModel {
 
     func details(for id: String) -> TorrentDetails {
         if let cached = detailsCache[id] { return cached }
+        scheduleDetailsFetch(for: id)
         let details = engine.loadDetails(for: id)
         detailsCache[id] = details
         return details
+    }
+
+    private func scheduleDetailsRefresh() {
+        guard !detailsCollapsed, let id = selectedIDs.first else { return }
+        scheduleDetailsFetch(for: id)
+    }
+
+    private func scheduleDetailsFetch(for id: String) {
+        guard !detailsFetching else { return }
+        detailsFetching = true
+        let engine = self.engine
+        Task {
+            let fetched = await engine.fetchDetails(for: id)
+            detailsFetching = false
+            if selectedIDs.contains(id) || detailsCache[id] != nil {
+                detailsCache[id] = fetched
+            }
+        }
+    }
+
+    func setFilePriority(file: FileRow, priority: FilePriority) {
+        guard let id = selectedIDs.first,
+              let position = detailsCache[id]?.files.firstIndex(where: { $0.id == file.id }),
+              file.priority != priority
+        else { return }
+        engine.setFilePriority(id: id, fileIndex: position, priority: priority)
+        detailsCache[id]?.files[position].priority = priority
+        writeProbeLog("[details] set prio file=\(file.name) -> \(priority.rawValue)")
     }
 
     var globalDownloadSpeed: Int64 {
@@ -163,8 +194,8 @@ final class ListViewModel {
     }
 
     func refresh() {
-        detailsCache.removeAll()
         torrents = engine.loadTorrents()
+        scheduleDetailsRefresh()
     }
 
     func confirmAdd(source: AddSource, savePath: String) {
@@ -204,6 +235,7 @@ final class ListViewModel {
         guard let ids = pendingRemoval, !ids.isEmpty else { return }
         engine.remove(ids: Array(ids), deleteFiles: false)
         selectedIDs.subtract(ids)
+        for id in ids { detailsCache.removeValue(forKey: id) }
         pendingRemoval = nil
         refresh()
         writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))")
