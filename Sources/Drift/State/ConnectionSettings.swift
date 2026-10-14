@@ -26,12 +26,19 @@ final class ConnectionSettings {
     var baseUrl: String
     var username: String
     var testStatus: TestStatus?
-    private(set) var lastVersion: String?
+    var lastVersion: String?
 
     private init() {
         let defaults = UserDefaults.standard
         baseUrl = defaults.string(forKey: "connection.baseUrl") ?? "http://localhost:8080"
         username = defaults.string(forKey: "connection.username") ?? "admin"
+        lastVersion = defaults.string(forKey: "connection.lastVersion")
+    }
+
+    func noteConnected(version: String) {
+        guard version != lastVersion else { return }
+        lastVersion = version
+        UserDefaults.standard.set(version, forKey: "connection.lastVersion")
     }
 
     var password: String {
@@ -61,15 +68,13 @@ final class ConnectionSettings {
         let engine = WebAPIEngine(base: url)
         do {
             let version = try await engine.authenticate(username: username, password: password)
-            lastVersion = version
+            noteConnected(version: version)
             testStatus = .success("Connected — qBittorrent \(version)")
             writeProbeLog("[conn] ok \(version)")
         } catch let error as WebAPIError {
-            lastVersion = nil
             testStatus = .error(error.message)
             writeProbeLog("[conn] error \(error.message)")
         } catch {
-            lastVersion = nil
             testStatus = .error(error.localizedDescription)
             writeProbeLog("[conn] error \(error.localizedDescription)")
         }

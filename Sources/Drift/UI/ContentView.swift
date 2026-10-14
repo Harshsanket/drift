@@ -131,6 +131,28 @@ struct ContentView: View {
                     }
                 }
             }
+            // Verification-only: --test-sync forces a real backend connection
+            // (bypasses the prior-success opt-in) using DRIFT_TEST_PASSWORD.
+            if ProcessInfo.processInfo.arguments.contains("--test-sync") {
+                Task {
+                    await model.connectRealBackend(
+                        force: true,
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    var last = ""
+                    for _ in 0..<10 {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        let row = model.filtered.first
+                        let snap = row.map {
+                            "\($0.name)|s=\($0.status.rawValue)|p=\($0.progress)|d=\($0.downloadSpeed)"
+                        } ?? "empty(\(model.filtered.count))"
+                        if snap != last {
+                            last = snap
+                            writeProbeLog("[sync] sample \(snap)")
+                        }
+                    }
+                }
+            }
         }
     }
 

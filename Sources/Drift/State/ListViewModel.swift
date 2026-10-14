@@ -45,7 +45,7 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
 @MainActor
 @Observable
 final class ListViewModel {
-    private let engine: TorrentEngine
+    private var engine: TorrentEngine
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
@@ -64,9 +64,43 @@ final class ListViewModel {
     private var detailsCache: [String: TorrentDetails] = [:]
     private var lastAutoCollapse = Date.distantPast
 
-    init(engine: TorrentEngine = MockTorrentEngine()) {
-        self.engine = engine
+    init(engine: TorrentEngine? = nil) {
+        self.engine = engine ?? MockTorrentEngine()
         refresh()
+        Task { await connectRealBackend() }
+    }
+
+    func connectRealBackend(force: Bool = false, passwordOverride: String? = nil) async {
+        guard !(engine is WebAPIEngine) else { return }
+        let settings = ConnectionSettings.shared
+        guard force || settings.lastVersion != nil else {
+            writeProbeLog("[sync] skipped (no prior successful connection)")
+            return
+        }
+        guard let url = WebAPIEngine.url(from: settings.baseUrl) else {
+            writeProbeLog("[sync] invalid url \(settings.baseUrl)")
+            return
+        }
+        let real = WebAPIEngine(
+            base: url,
+            username: settings.username,
+            password: passwordOverride ?? settings.password
+        )
+        do {
+            let version = try await real.authenticate()
+            real.onUpdate = { [weak self] in
+                self?.refresh()
+            }
+            real.startSync()
+            engine = real
+            settings.noteConnected(version: version)
+            refresh()
+            writeProbeLog("[sync] connected \(version)")
+        } catch let error as WebAPIError {
+            writeProbeLog("[sync] connect failed: \(error.message)")
+        } catch {
+            writeProbeLog("[sync] connect failed: \(error)")
+        }
     }
 
     func toggleDetails() {
