@@ -51,4 +51,12 @@ final class AppSettings {
             writeProbeLog("[settings] appearance=\(appearance.rawValue)")
         }
     }
+
+    var preventIdleSleep: Bool =
+        UserDefaults.standard.bool(forKey: "sleepPrevention.enabled") {
+        didSet {
+            UserDefaults.standard.set(preventIdleSleep, forKey: "sleepPrevention.enabled")
+            PowerManagementManager.shared.settingsChanged()
+        }
+    }
 }

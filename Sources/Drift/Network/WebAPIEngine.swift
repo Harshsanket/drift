@@ -336,6 +336,22 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             .sorted { $0.name < $1.name }
     }
 
+    func transferActivity() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let down = (serverState["dl_info_speed"] as? NSNumber)?.doubleValue ?? 0
+        let up = (serverState["up_info_speed"] as? NSNumber)?.doubleValue ?? 0
+        if down > 0 || up > 0 { return true }
+
+        let activeStates: Set<String> = [
+            "downloading", "forcedDL", "metaDL", "uploading", "forcedUP",
+        ]
+        return rawTorrents.values.contains { fields in
+            activeStates.contains(fields["state"] as? String ?? "")
+        }
+    }
+
     func loadDetails(for id: String) -> TorrentDetails {
         let (general, summary) = detailsBase(for: id)
         let files = [

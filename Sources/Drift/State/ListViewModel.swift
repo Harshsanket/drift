@@ -200,6 +200,9 @@ final class ListViewModel {
 
     func refresh() {
         torrents = engine.loadTorrents()
+        if let real = engine as? WebAPIEngine {
+            PowerManagementManager.shared.noteObservation(active: real.transferActivity())
+        }
         scheduleDetailsRefresh()
     }
 

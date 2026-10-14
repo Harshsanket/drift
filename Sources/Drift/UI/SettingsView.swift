@@ -73,9 +73,16 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+
+            Section("Power") {
+                Toggle("Prevent idle sleep while transfers are active", isOn: $app.preventIdleSleep)
+                Text("While enabled and transfers are actively moving data, this Mac will not enter idle sleep automatically. Display sleep, Apple-menu Sleep, and closing your MacBook lid are not affected. This protection exists only while this app is running.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 460)
+        .frame(width: 520, height: 540)
         .preferredColorScheme(app.appearance.colorScheme)
         .onAppear {
             baseUrl = connection.baseUrl

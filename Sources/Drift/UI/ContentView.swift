@@ -243,6 +243,43 @@ struct ContentView: View {
                     writeProbeLog("[lifecycle] sequence done")
                 }
             }
+            // Verification-only: --test-power drives the sleep-prevention
+            // manager through default → arm → assert → immediate-off →
+            // re-arm → 30s inactivity release (log + pmset verifiable).
+            if ProcessInfo.processInfo.arguments.contains("--test-power") {
+                Task { @MainActor in
+                    let settings = AppSettings.shared
+                    let power = PowerManagementManager.shared
+                    writeProbeLog("[power] sequence start enabled=\(settings.preventIdleSleep ? "on" : "off")")
+                    try? await Task.sleep(for: .seconds(1))
+
+                    settings.preventIdleSleep = true
+                    try? await Task.sleep(for: .seconds(1))
+                    power.noteObservation(active: true)
+                    try? await Task.sleep(for: .seconds(1))
+                    power.noteObservation(active: true)
+                    writeProbeLog("[power] phase=held pmset-check-now")
+                    try? await Task.sleep(for: .seconds(4))
+
+                    settings.preventIdleSleep = false
+                    writeProbeLog("[power] phase=immediate-off done")
+                    try? await Task.sleep(for: .seconds(1))
+
+                    settings.preventIdleSleep = true
+                    try? await Task.sleep(for: .seconds(1))
+                    power.noteObservation(active: true)
+                    try? await Task.sleep(for: .seconds(1))
+                    power.noteObservation(active: true)
+                    power.noteObservation(active: false)
+                    writeProbeLog("[power] phase=waiting-inactivity-release")
+                    try? await Task.sleep(for: .seconds(40))
+                    writeProbeLog("[power] phase=inactivity-check pmset-check-now")
+
+                    settings.preventIdleSleep = false
+                    try? await Task.sleep(for: .seconds(1))
+                    writeProbeLog("[power] sequence done")
+                }
+            }
             // Verification-only: --show-connection-sheet opens the connection
             // sheet; --test-connection pings the stored endpoint (or
             // DRIFT_TEST_PASSWORD override) so the result is log-verifiable.
