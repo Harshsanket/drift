@@ -121,7 +121,8 @@ struct HeaderTrailingControls: View {
             FilterField(
                 text: $model.searchText,
                 isFocused: $filterFocused,
-                width: fit.filterWidth
+                width: fit.filterWidth,
+                collapseDetails: { model.collapseDetailsFromOutsideClick() }
             )
 
             MoreOptionsMenu(model: model)
@@ -238,6 +239,7 @@ private struct FilterField: View {
     @Binding var text: String
     @FocusState.Binding var isFocused: Bool
     let width: CGFloat
+    var collapseDetails: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 6) {
@@ -272,7 +274,10 @@ private struct FilterField: View {
                 .allowsHitTesting(false)
         }
         .contentShape(Capsule(style: .continuous))
-        .onTapGesture { isFocused = true }
+        .onTapGesture {
+            isFocused = true
+            collapseDetails()
+        }
     }
 }
 

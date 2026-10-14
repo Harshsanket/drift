@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Observation
 
 protocol TorrentProviding: Sendable {
@@ -61,7 +62,10 @@ final class ListViewModel {
     var sortOrder: [KeyPathComparator<TorrentSummary>] = []
     var columnCustomization = TableColumnCustomization<TorrentSummary>()
     var selectedTab: DetailTab = .general
+    var tableContentWidth: CGFloat = 900
     private var detailsCache: [String: TorrentDetails] = [:]
+    private var selectionAnchor: String?
+    private var lastAutoCollapse = Date.distantPast
 
     init(provider: TorrentProviding = MockTorrentProvider()) {
         self.provider = provider
@@ -69,9 +73,39 @@ final class ListViewModel {
     }
 
     func toggleDetails() {
+        guard Date().timeIntervalSince(lastAutoCollapse) > 0.3 else { return }
         withAnimation(.spring(duration: 0.35)) {
             detailsCollapsed.toggle()
         }
+    }
+
+    func collapseDetailsFromOutsideClick() {
+        guard !detailsCollapsed else { return }
+        lastAutoCollapse = Date()
+        withAnimation(.spring(duration: 0.35)) {
+            detailsCollapsed = true
+        }
+    }
+
+    func rowClicked(_ id: String) {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.shift), let anchor = selectionAnchor {
+            let ids = filtered.map(\.id)
+            if let from = ids.firstIndex(of: anchor), let to = ids.firstIndex(of: id) {
+                selectedIDs = Set(ids[min(from, to)...max(from, to)])
+                return
+            }
+        }
+        if modifiers.contains(.command) {
+            if selectedIDs.contains(id) {
+                selectedIDs.remove(id)
+            } else {
+                selectedIDs.insert(id)
+            }
+        } else {
+            selectedIDs = [id]
+        }
+        selectionAnchor = id
     }
 
     var filtered: [TorrentSummary] {

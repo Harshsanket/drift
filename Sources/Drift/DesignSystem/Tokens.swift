@@ -43,7 +43,7 @@ enum DesignSystem {
         static let sidebarReserve: CGFloat = 220
         /// Floating status bar: margins measured from the main content edges.
         static let statusBarSideMargin: CGFloat = 14
-        static let statusBarBottomMargin: CGFloat = 12
+        static let statusBarBottomMargin: CGFloat = 20
     }
 
     enum Palette {

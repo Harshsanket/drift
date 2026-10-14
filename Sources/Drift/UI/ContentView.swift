@@ -37,7 +37,7 @@ struct ContentView: View {
                             .frame(height: headerOverflow)
                             .allowsHitTesting(false)
                     }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                    .overlay(alignment: .bottom) {
                         footer
                     }
                     // The window itself is transparent so the sidebar can show
@@ -58,6 +58,9 @@ struct ContentView: View {
         GeometryReader { proxy in
             HStack(spacing: 0) {
                 HeaderLeadingControls()
+                    .simultaneousGesture(TapGesture().onEnded {
+                        model.collapseDetailsFromOutsideClick()
+                    })
                 Spacer(minLength: DesignSystem.Metrics.controlGap)
                 HeaderTrailingControls(
                     model: model,

@@ -35,6 +35,9 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .focusable(false)
+        .simultaneousGesture(TapGesture().onEnded {
+            model.collapseDetailsFromOutsideClick()
+        })
         // Real translucency: the window is non-opaque (TransparentWindowAttachment)
         // and this blur samples what is behind it, so the wallpaper reads through.
         .scrollContentBackground(.hidden)
