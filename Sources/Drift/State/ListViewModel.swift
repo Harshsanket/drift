@@ -4,6 +4,7 @@ import Observation
 
 protocol TorrentProviding: Sendable {
     func loadTorrents() -> [TorrentSummary]
+    func loadDetails(for id: String) -> TorrentDetails
 }
 
 enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
@@ -56,19 +57,21 @@ final class ListViewModel {
     var statusFilter: StatusFilter = .all
     var searchText = ""
     var detailsCollapsed = true
+    var isConnected = true
+    var sortOrder: [KeyPathComparator<TorrentSummary>] = []
+    var columnCustomization = TableColumnCustomization<TorrentSummary>()
+    var selectedTab: DetailTab = .general
+    private var detailsCache: [String: TorrentDetails] = [:]
+
+    init(provider: TorrentProviding = MockTorrentProvider()) {
+        self.provider = provider
+        refresh()
+    }
 
     func toggleDetails() {
         withAnimation(.spring(duration: 0.35)) {
             detailsCollapsed.toggle()
         }
-    }
-    var isConnected = true
-    var sortOrder: [KeyPathComparator<TorrentSummary>] = []
-    var columnCustomization = TableColumnCustomization<TorrentSummary>()
-
-    init(provider: TorrentProviding = MockTorrentProvider()) {
-        self.provider = provider
-        refresh()
     }
 
     var filtered: [TorrentSummary] {
@@ -83,6 +86,18 @@ final class ListViewModel {
     var selectedTorrent: TorrentSummary? {
         guard let id = selectedIDs.first else { return nil }
         return torrents.first { $0.id == id }
+    }
+
+    var selectedDetails: TorrentDetails? {
+        guard let id = selectedIDs.first else { return nil }
+        return details(for: id)
+    }
+
+    func details(for id: String) -> TorrentDetails {
+        if let cached = detailsCache[id] { return cached }
+        let details = provider.loadDetails(for: id)
+        detailsCache[id] = details
+        return details
     }
 
     var globalDownloadSpeed: Int64 {
