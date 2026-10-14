@@ -106,11 +106,38 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     // MARK: - Sync loop
 
+    enum SyncTier: String {
+        case active
+        case background
+    }
+
+    private var tier: SyncTier = .active
+    private var wakeRequested = false
+    private var loopAlive = false
+    private var suspended = false
+    private var syncGeneration = 0
+
     func startSync() {
-        lock.lock()
-        syncTask?.cancel()
-        lock.unlock()
-        syncTask = Task { await self.syncLoop() }
+        let generation = lock.withLock { () -> Int in
+            suspended = false
+            syncTask?.cancel()
+            syncTask = nil
+            syncGeneration += 1
+            loopAlive = true
+            return syncGeneration
+        }
+        let task = Task {
+            await self.syncLoop()
+            self.lock.withLock {
+                if self.syncGeneration == generation {
+                    self.loopAlive = false
+                    self.syncTask = nil
+                }
+            }
+        }
+        lock.withLock {
+            if syncGeneration == generation { syncTask = task }
+        }
     }
 
     func stopSync() {
@@ -120,13 +147,58 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         lock.unlock()
     }
 
+    func setSyncTier(_ newTier: SyncTier) {
+        let changed = lock.withLock { () -> Bool in
+            guard tier != newTier else { return false }
+            tier = newTier
+            wakeRequested = true
+            return true
+        }
+        if changed {
+            writeProbeLog("[sync] tier -> \(newTier.rawValue)")
+            if newTier == .active { ensureSyncLoop() }
+        }
+    }
+
+    func suspendSync() {
+        lock.withLock { suspended = true }
+        stopSync()
+    }
+
+    func resumeSync() async {
+        do {
+            let version = try await authenticate()
+            lock.withLock {
+                lastRid = 0
+                consecutiveFailures = 0
+            }
+            startSync()
+            writeProbeLog("[sync] resumed \(version)")
+        } catch {
+            writeProbeLog("[sync] resume failed: \(describe(error))")
+        }
+    }
+
+    /// Revives a loop that gave up (daemon restart etc.) unless suspended.
+    func ensureSyncLoop() {
+        let needed = lock.withLock { () -> Bool in
+            !suspended && !loopAlive
+        }
+        guard needed else { return }
+        writeProbeLog("[sync] loop revived")
+        startSync()
+    }
+
     private func syncLoop() async {
         while !Task.isCancelled {
             do {
                 try await syncOnce()
                 consecutiveFailures = 0
                 let interval = refreshIntervalMilliseconds()
-                try await Task.sleep(nanoseconds: UInt64(max(500, interval)) * 1_000_000)
+                if lock.withLock({ tier }) == .background {
+                    writeProbeLog("[sync] background sleep \(interval)ms")
+                }
+                try await sleepInterruptibly(milliseconds: interval)
             } catch is CancellationError {
                 break
             } catch {
@@ -154,7 +226,23 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         }
     }
 
+    private func sleepInterruptibly(milliseconds: Int) async throws {
+        var remaining = max(500, milliseconds)
+        while remaining > 0 {
+            let shouldWake = lock.withLock { () -> Bool in
+                guard wakeRequested else { return false }
+                wakeRequested = false
+                return true
+            }
+            if shouldWake { return }
+            let step = min(250, remaining)
+            try await Task.sleep(nanoseconds: UInt64(step) * 1_000_000)
+            remaining -= step
+        }
+    }
+
     private func syncOnce() async throws {
+        ensureSyncLoop()
         let acquired = lock.withLock { () -> Bool in
             if isFetching { return false }
             isFetching = true
@@ -226,8 +314,10 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     private func refreshIntervalMilliseconds() -> Int {
         lock.lock()
-        defer { lock.unlock() }
-        return (serverState["refresh_interval"] as? NSNumber)?.intValue ?? 1500
+        let base = (serverState["refresh_interval"] as? NSNumber)?.intValue ?? 1500
+        let currentTier = tier
+        lock.unlock()
+        return currentTier == .background ? max(base, 15_000) : base
     }
 
     private func describe(_ error: Error) -> String {

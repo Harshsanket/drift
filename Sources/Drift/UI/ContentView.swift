@@ -68,6 +68,7 @@ struct ContentView: View {
         }
         .navigationTitle("Drift")
         .background(TransparentWindowAttachment())
+        .background(WindowVisibilityProbe { model.setWindowVisible($0) })
         .sheet(isPresented: $model.showAddSheet) {
             AddTorrentSheet(model: model)
         }
@@ -217,6 +218,29 @@ struct ContentView: View {
                         }
                     }
                     writeProbeLog("[details] sequence done")
+                }
+            }
+            // Verification-only: --test-lifecycle drives the tier + sleep/wake
+            // handlers against the real backend (log-verifiable sequence).
+            if ProcessInfo.processInfo.arguments.contains("--test-lifecycle") {
+                Task { @MainActor in
+                    await model.connectRealBackend(
+                        force: true,
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    guard model.isRealBackend else {
+                        writeProbeLog("[lifecycle] skipped (connect failed)")
+                        return
+                    }
+                    model.setWindowVisible(false)
+                    try? await Task.sleep(for: .seconds(16))
+                    model.handleSystemSleep()
+                    try? await Task.sleep(for: .seconds(1))
+                    model.handleSystemWake()
+                    try? await Task.sleep(for: .seconds(4))
+                    model.setWindowVisible(true)
+                    try? await Task.sleep(for: .seconds(2))
+                    writeProbeLog("[lifecycle] sequence done")
                 }
             }
             // Verification-only: --show-connection-sheet opens the connection

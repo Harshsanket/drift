@@ -65,9 +65,13 @@ final class ListViewModel {
     private var detailsCache: [String: TorrentDetails] = [:]
     private var detailsFetching = false
     private var lastAutoCollapse = Date.distantPast
+    private(set) var windowVisible = true
 
     init(engine: TorrentEngine? = nil) {
         self.engine = engine ?? MockTorrentEngine()
+        AppLifecycle.shared.onSleep = { [weak self] in self?.handleSystemSleep() }
+        AppLifecycle.shared.onWake = { [weak self] in self?.handleSystemWake() }
+        AppLifecycle.shared.start()
         refresh()
         Task { await connectRealBackend() }
     }
@@ -96,6 +100,7 @@ final class ListViewModel {
             real.startSync()
             engine = real
             detailsCache.removeAll()
+            real.setSyncTier(windowVisible ? .active : .background)
             settings.noteConnected(version: version)
             refresh()
             writeProbeLog("[sync] connected \(version)")
@@ -154,7 +159,7 @@ final class ListViewModel {
     }
 
     private func scheduleDetailsRefresh() {
-        guard !detailsCollapsed, let id = selectedIDs.first else { return }
+        guard windowVisible, !detailsCollapsed, let id = selectedIDs.first else { return }
         scheduleDetailsFetch(for: id)
     }
 
@@ -196,6 +201,28 @@ final class ListViewModel {
     func refresh() {
         torrents = engine.loadTorrents()
         scheduleDetailsRefresh()
+    }
+
+    func setWindowVisible(_ visible: Bool) {
+        guard visible != windowVisible else { return }
+        windowVisible = visible
+        writeProbeLog("[lifecycle] window \(visible ? "visible" : "hidden")")
+        (engine as? WebAPIEngine)?.setSyncTier(visible ? .active : .background)
+    }
+
+    func handleSystemSleep() {
+        writeProbeLog("[lifecycle] system sleep — sync suspended")
+        (engine as? WebAPIEngine)?.suspendSync()
+    }
+
+    func handleSystemWake() {
+        writeProbeLog("[lifecycle] system wake — sync resuming")
+        Task {
+            if let real = engine as? WebAPIEngine {
+                await real.resumeSync()
+            }
+            refresh()
+        }
     }
 
     func confirmAdd(source: AddSource, savePath: String) {
