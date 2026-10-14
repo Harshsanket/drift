@@ -51,8 +51,13 @@ struct SidebarView: View {
         })
         // Real translucency: the window is non-opaque (TransparentWindowAttachment)
         // and this blur samples what is behind it, so the wallpaper reads through.
+        // The blur also reaches up behind the traffic lights so the material is
+        // continuous through the titlebar strip.
         .scrollContentBackground(.hidden)
-        .background(BehindWindowBlur())
+        .background {
+            BehindWindowBlur()
+                .ignoresSafeArea(edges: .top)
+        }
         .background {
             GeometryReader { geo in
                 Color.clear

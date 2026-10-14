@@ -4,17 +4,18 @@ struct ContentView: View {
     @Bindable var model: ListViewModel
     @FocusState private var filterFocused: Bool
     @State private var sidebarWidth: CGFloat = SidebarWidthPreference.defaultValue
+    @State private var detailTopInset: CGFloat = DesignSystem.Metrics.titlebarBand
 
     private var footerRadius: CGFloat {
         model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
     }
 
-    /// How far the padded header extends past the band the system already keeps
-    /// clear for the hidden titlebar. The split view insets its columns from the
-    /// real safe area, so the overflow has to be added on top of it or the
-    /// header would cover the table's first row.
+    /// How far the padded header extends past whatever top safe-area inset the
+    /// detail column actually has (the titlebar strip in a normal window, 0 in
+    /// fullscreen). Measured, not assumed, so the header never overlaps the
+    /// table's column-header row.
     private var headerOverflow: CGFloat {
-        max(0, DesignSystem.Metrics.headerHeight - DesignSystem.Metrics.titlebarBand)
+        max(0, DesignSystem.Metrics.headerHeight - detailTopInset)
     }
 
     var body: some View {
@@ -38,7 +39,18 @@ struct ContentView: View {
                             .frame(height: headerOverflow)
                             .allowsHitTesting(false)
                     }
-                    .overlay(alignment: .bottom) {
+                    // Outside the safeAreaInset so it measures only the system
+                    // inset, not our own overflow padding.
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { detailTopInset = proxy.safeAreaInsets.top }
+                                .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
+                                    detailTopInset = newInset
+                                }
+                        }
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
                         footer
                     }
                     // The window itself is transparent so the sidebar can show

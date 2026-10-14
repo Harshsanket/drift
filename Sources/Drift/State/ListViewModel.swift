@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import AppKit
 import Observation
 
 protocol TorrentProviding: Sendable {
@@ -62,15 +61,10 @@ final class ListViewModel {
     var sortOrder: [KeyPathComparator<TorrentSummary>] = []
     var columnCustomization = TableColumnCustomization<TorrentSummary>()
     var selectedTab: DetailTab = .general
-    var columnWidths: [CGFloat] = [200, 100, 160, 84, 84, 84, 80, 80]
-    var tableRowHeight: CGFloat = 26
     var showCategories = false
     var showTags = false
     private var detailsCache: [String: TorrentDetails] = [:]
-    private var selectionAnchor: String?
     private var lastAutoCollapse = Date.distantPast
-    private var lastClickID: String?
-    private var lastClickAt = Date.distantPast
 
     init(provider: TorrentProviding = MockTorrentProvider()) {
         self.provider = provider
@@ -78,10 +72,14 @@ final class ListViewModel {
     }
 
     func toggleDetails() {
-        guard Date().timeIntervalSince(lastAutoCollapse) > 0.3 else { return }
+        guard Date().timeIntervalSince(lastAutoCollapse) > 0.3 else {
+            writeProbeLog("[model] toggleDetails suppressed")
+            return
+        }
         withAnimation(.spring(duration: 0.35)) {
             detailsCollapsed.toggle()
         }
+        writeProbeLog("[model] toggleDetails -> collapsed=\(detailsCollapsed)")
     }
 
     func collapseDetailsFromOutsideClick() {
@@ -90,60 +88,7 @@ final class ListViewModel {
         withAnimation(.spring(duration: 0.35)) {
             detailsCollapsed = true
         }
-    }
-
-    /// A single table-cell click. Two taps on the same row within the
-    /// double-click window toggle the details panel; each standalone tap
-    /// selects and collapses like a click anywhere else.
-    func cellClicked(_ id: String) {
-        let now = Date()
-        if lastClickID == id, now.timeIntervalSince(lastClickAt) < 0.3 {
-            lastClickID = nil
-            lastClickAt = .distantPast
-            toggleDetails()
-            return
-        }
-        lastClickID = id
-        lastClickAt = now
-        rowClicked(id)
-        collapseDetailsFromOutsideClick()
-    }
-
-    private static let columnVisibilityIDs = [
-        "", "status", "progress", "size", "downloadSpeed", "uploadSpeed", "eta", "timeActive"
-    ]
-
-    /// Canonical index of the last visible column, so its row-backdrop slice
-    /// can round the capsule's trailing end.
-    func isLastVisibleColumn(_ index: Int) -> Bool {
-        let ids = Self.columnVisibilityIDs
-        for i in stride(from: ids.count - 1, through: 0, by: -1) {
-            if ids[i].isEmpty || columnCustomization[visibility: ids[i]] != .hidden {
-                return i == index
-            }
-        }
-        return index == 0
-    }
-
-    func rowClicked(_ id: String) {
-        let modifiers = NSEvent.modifierFlags
-        if modifiers.contains(.shift), let anchor = selectionAnchor {
-            let ids = filtered.map(\.id)
-            if let from = ids.firstIndex(of: anchor), let to = ids.firstIndex(of: id) {
-                selectedIDs = Set(ids[min(from, to)...max(from, to)])
-                return
-            }
-        }
-        if modifiers.contains(.command) {
-            if selectedIDs.contains(id) {
-                selectedIDs.remove(id)
-            } else {
-                selectedIDs.insert(id)
-            }
-        } else {
-            selectedIDs = [id]
-        }
-        selectionAnchor = id
+        writeProbeLog("[model] collapsed from outside click")
     }
 
     var filtered: [TorrentSummary] {

@@ -1,25 +1,39 @@
 import SwiftUI
 import AppKit
 
+/// Appends a line to the shared probe log; used by the table probe and the
+/// view model to record interaction verification without console tooling.
+func writeProbeLog(_ message: String) {
+    let url = URL(fileURLWithPath: "/tmp/drift-probe.log")
+    let data = Data("\(message)\n".utf8)
+    if let handle = try? FileHandle(forWritingTo: url) {
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: data)
+    } else {
+        try? data.write(to: url)
+    }
+}
+
 struct HorizontalScrollRedirector: NSViewRepresentable {
     let model: ListViewModel
 
     func makeNSView(context: Context) -> Probe {
         let probe = Probe()
         probe.model = model
+        probe.log("makeNSView")
         return probe
     }
 
     func updateNSView(_ nsView: Probe, context: Context) {
         nsView.model = model
-        nsView.publishMetrics()
+        nsView.configureTable()
     }
 
     final class Probe: NSView {
         weak var model: ListViewModel?
         private var monitor: Any?
-        private var lastPublishedWidths: [CGFloat] = []
-        private var lastPublishedRowHeight: CGFloat = 0
+        private weak var observedTable: NSTableView?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -35,23 +49,68 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            publishMetrics()
+            configureTable()
         }
 
-        func publishMetrics() {
-            guard let model, let scrollView = tableScrollView(),
+        /// Pins the NSTableView backing the SwiftUI Table to the design row
+        /// geometry (34pt flat full-width alternating rows) and hooks its
+        /// native double-click action to the details toggle (SwiftUI exposes
+        /// no double-click API for `Table`).
+        func configureTable() {
+            guard let scrollView = tableScrollView(),
                   let table = scrollView.documentView as? NSTableView
-            else { return }
-            let widths = table.tableColumns.map(\.width)
-            let rowHeight = table.rowHeight
-            if widths != lastPublishedWidths {
-                lastPublishedWidths = widths
-                model.columnWidths = widths
+            else {
+                log("no scroll view found")
+                return
             }
-            if rowHeight > 0, abs(rowHeight - lastPublishedRowHeight) > 0.5 {
-                lastPublishedRowHeight = rowHeight
-                model.tableRowHeight = rowHeight
+            if table.style != .fullWidth {
+                log("style \(table.style.rawValue) -> fullWidth")
+                table.style = .fullWidth
             }
+            if !table.usesAlternatingRowBackgroundColors {
+                table.usesAlternatingRowBackgroundColors = true
+                log("alternating -> true")
+            }
+            let rowHeight = DesignSystem.Metrics.tableRowHeight
+            if abs(table.rowHeight - rowHeight) > 0.5 {
+                log("rowHeight \(table.rowHeight) -> \(rowHeight)")
+                table.rowHeight = rowHeight
+            }
+            if table.intercellSpacing.height != 0 {
+                table.intercellSpacing = NSSize(width: table.intercellSpacing.width, height: 0)
+                log("intercellSpacing.height -> 0")
+            }
+            if table.doubleAction != #selector(handleRowDoubleClicked) {
+                table.target = self
+                table.doubleAction = #selector(handleRowDoubleClicked)
+                log("doubleAction installed")
+            }
+            if observedTable !== table {
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(selectionChanged),
+                    name: NSTableView.selectionDidChangeNotification,
+                    object: table
+                )
+                observedTable = table
+                log("selection observer attached")
+            }
+        }
+
+        @objc private func selectionChanged() {
+            let rows = (tableScrollView()?.documentView as? NSTableView)?
+                .selectedRowIndexes
+                .map { $0 } ?? []
+            log("selection changed rows=\(rows)")
+        }
+
+        func log(_ message: String) {
+            writeProbeLog("[probe] \(message)")
+        }
+
+        @objc private func handleRowDoubleClicked() {
+            log("doubleAction fired")
+            model?.toggleDetails()
         }
 
         private func handle(_ event: NSEvent) -> NSEvent? {
