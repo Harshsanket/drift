@@ -52,3 +52,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 echo "Packaged $APP"
+
+# Ad-hoc seal: an unsealed bundle (binary signature present, Info.plist
+# modified after) fails codesign validation, which makes macOS reject all
+# keychain operations from the app (-67030). Phase 14 replaces this with
+# Developer ID signing + notarization.
+codesign --force -s - --entitlements Scripts/entitlements-dev.plist "$APP"
+codesign -v "$APP"

@@ -59,4 +59,16 @@ final class AppSettings {
             PowerManagementManager.shared.settingsChanged()
         }
     }
+
+    var showMenuBarItem: Bool =
+        UserDefaults.standard.object(forKey: "menuBar.enabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showMenuBarItem, forKey: "menuBar.enabled")
+            writeProbeLog("[settings] menuBar=\(showMenuBarItem ? "on" : "off")")
+            NotificationCenter.default.post(name: .driftMenuBarSettingChanged, object: nil)
+            onMenuBarItemChanged?()
+        }
+    }
+
+    var onMenuBarItemChanged: (@MainActor () -> Void)?
 }

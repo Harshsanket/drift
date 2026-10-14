@@ -2,14 +2,21 @@ import SwiftUI
 
 @main
 struct DriftApp: App {
-    @State private var model = ListViewModel()
+    @State private var model: ListViewModel
+
+    init() {
+        let model = ListViewModel()
+        _model = State(initialValue: model)
+        StatusItemController.shared.install(model: model)
+    }
 
     var body: some Scene {
-        WindowGroup {
+        Window("Drift", id: "main") {
             ContentView(model: model)
         }
         .defaultSize(width: 1100, height: 700)
         .windowStyle(.hiddenTitleBar)
+        .defaultLaunchBehavior(.presented)
 
         Window("Settings", id: "settings") {
             SettingsView()

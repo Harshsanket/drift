@@ -108,7 +108,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     enum SyncTier: String {
         case active
-        case background
+        case summary
     }
 
     private var tier: SyncTier = .active
@@ -156,14 +156,23 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         }
         if changed {
             writeProbeLog("[sync] tier -> \(newTier.rawValue)")
-            if newTier == .active { ensureSyncLoop() }
+            ensureSyncLoop()
         }
     }
 
     func suspendSync() {
-        lock.withLock { suspended = true }
+        let wasSuspended = lock.withLock { () -> Bool in
+            let previous = suspended
+            suspended = true
+            return previous
+        }
         stopSync()
+        if !wasSuspended {
+            writeProbeLog("[sync] suspended")
+        }
     }
+
+    var isSuspended: Bool { lock.withLock { suspended } }
 
     func resumeSync() async {
         do {
@@ -195,8 +204,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
                 try await syncOnce()
                 consecutiveFailures = 0
                 let interval = refreshIntervalMilliseconds()
-                if lock.withLock({ tier }) == .background {
-                    writeProbeLog("[sync] background sleep \(interval)ms")
+                let tierNow = lock.withLock { tier }
+                if tierNow != .active {
+                    writeProbeLog("[sync] sleep \(interval)ms (\(tierNow.rawValue))")
                 }
                 try await sleepInterruptibly(milliseconds: interval)
             } catch is CancellationError {
@@ -317,7 +327,10 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         let base = (serverState["refresh_interval"] as? NSNumber)?.intValue ?? 1500
         let currentTier = tier
         lock.unlock()
-        return currentTier == .background ? max(base, 15_000) : base
+        switch currentTier {
+        case .active: return base
+        case .summary: return max(base, 3_000)
+        }
     }
 
     private func describe(_ error: Error) -> String {

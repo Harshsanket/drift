@@ -77,6 +77,8 @@ struct ContentView: View {
         }
         .preferredColorScheme(AppSettings.shared.appearance.colorScheme)
         .onAppear {
+            writeProbeLog("[nav] content appear")
+            WindowOpener.openMain = { openWindow(id: "main") }
             // Verification-only: --show-settings opens the settings window.
             if ProcessInfo.processInfo.arguments.contains("--show-settings") {
                 openWindow(id: "settings")
@@ -232,8 +234,9 @@ struct ContentView: View {
                         writeProbeLog("[lifecycle] skipped (connect failed)")
                         return
                     }
+                    AppSettings.shared.showMenuBarItem = true
                     model.setWindowVisible(false)
-                    try? await Task.sleep(for: .seconds(16))
+                    try? await Task.sleep(for: .seconds(8))
                     model.handleSystemSleep()
                     try? await Task.sleep(for: .seconds(1))
                     model.handleSystemWake()
@@ -241,6 +244,68 @@ struct ContentView: View {
                     model.setWindowVisible(true)
                     try? await Task.sleep(for: .seconds(2))
                     writeProbeLog("[lifecycle] sequence done")
+                }
+            }
+            // Verification-only: --test-menu drives the menu bar slice —
+            // snapshot, pause/resume all, summary tier, item-off suspension,
+            // re-enable resume (log-countable sequence).
+            if ProcessInfo.processInfo.arguments.contains("--test-menu") {
+                Task { @MainActor in
+                    writeProbeLog("[menubar] hook start")
+                    await model.connectRealBackend(
+                        force: true,
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    guard model.isRealBackend else {
+                        writeProbeLog("[menubar] skipped (connect failed)")
+                        return
+                    }
+                    AppSettings.shared.showMenuBarItem = true
+                    func sleepLineCount() -> Int {
+                        let text = (try? String(contentsOfFile: "/tmp/drift-probe.log")) ?? ""
+                        return text.components(separatedBy: "sleep ").count - 1
+                    }
+                    let stats = model.transferStats()
+                    writeProbeLog(
+                        "[menubar] snapshot down=\(model.globalDownloadSpeed)"
+                            + " up=\(model.globalUploadSpeed)"
+                            + " dl=\(stats.downloading) seed=\(stats.seeding)"
+                            + " prog=\(Int((stats.progress * 100).rounded()))"
+                    )
+                    model.pauseAll()
+                    try? await Task.sleep(for: .seconds(3))
+                    writeProbeLog(
+                        "[menubar] after pause "
+                            + model.torrents.map(\.status.rawValue).sorted()
+                                .joined(separator: ",")
+                    )
+                    model.resumeAll()
+                    try? await Task.sleep(for: .seconds(3))
+                    writeProbeLog(
+                        "[menubar] after resume "
+                            + model.torrents.map(\.status.rawValue).sorted()
+                                .joined(separator: ",")
+                    )
+
+                    model.setWindowVisible(false)
+                    try? await Task.sleep(for: .seconds(8))
+                    writeProbeLog("[menubar] phase=summary")
+
+                    AppSettings.shared.showMenuBarItem = false
+                    let sleepBefore = sleepLineCount()
+                    try? await Task.sleep(for: .seconds(7))
+                    let sleepAfter = sleepLineCount()
+                    writeProbeLog(
+                        "[menubar] phase=suspended sleeps \(sleepBefore)->\(sleepAfter)"
+                    )
+
+                    AppSettings.shared.showMenuBarItem = true
+                    try? await Task.sleep(for: .seconds(5))
+                    writeProbeLog("[menubar] phase=re-enabled")
+
+                    model.setWindowVisible(true)
+                    try? await Task.sleep(for: .seconds(2))
+                    writeProbeLog("[menubar] sequence done")
                 }
             }
             // Verification-only: --test-power drives the sleep-prevention

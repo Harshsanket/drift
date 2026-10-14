@@ -72,6 +72,9 @@ final class ListViewModel {
         AppLifecycle.shared.onSleep = { [weak self] in self?.handleSystemSleep() }
         AppLifecycle.shared.onWake = { [weak self] in self?.handleSystemWake() }
         AppLifecycle.shared.start()
+        AppSettings.shared.onMenuBarItemChanged = { [weak self] in
+            self?.recomputeSyncTier()
+        }
         refresh()
         Task { await connectRealBackend() }
     }
@@ -100,7 +103,12 @@ final class ListViewModel {
             real.startSync()
             engine = real
             detailsCache.removeAll()
-            real.setSyncTier(windowVisible ? .active : .background)
+            recomputeSyncTier()
+            if let passwordOverride {
+                // A working password wins: keep the Keychain in sync so
+                // launch-time auto-connect doesn't retry stale credentials.
+                Keychain.setPassword(passwordOverride, account: "password")
+            }
             settings.noteConnected(version: version)
             refresh()
             writeProbeLog("[sync] connected \(version)")
@@ -203,6 +211,7 @@ final class ListViewModel {
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
+        NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
     }
 
@@ -210,7 +219,28 @@ final class ListViewModel {
         guard visible != windowVisible else { return }
         windowVisible = visible
         writeProbeLog("[lifecycle] window \(visible ? "visible" : "hidden")")
-        (engine as? WebAPIEngine)?.setSyncTier(visible ? .active : .background)
+        recomputeSyncTier()
+    }
+
+    func recomputeSyncTier() {
+        guard let real = engine as? WebAPIEngine else { return }
+        let itemPresent = AppSettings.shared.showMenuBarItem
+            && StatusItemController.shared.isItemVisible
+        let targetActive = windowVisible
+        let targetSummary = !windowVisible && itemPresent
+        if !targetActive && !targetSummary {
+            real.suspendSync()
+            return
+        }
+        let tier: WebAPIEngine.SyncTier = targetActive ? .active : .summary
+        if real.isSuspended {
+            Task {
+                await real.resumeSync()
+                real.setSyncTier(tier)
+            }
+        } else {
+            real.setSyncTier(tier)
+        }
     }
 
     func handleSystemSleep() {
@@ -225,7 +255,17 @@ final class ListViewModel {
                 await real.resumeSync()
             }
             refresh()
+            recomputeSyncTier()
         }
+    }
+
+    func transferStats() -> (downloading: Int, seeding: Int, progress: Double) {
+        let active = torrents.filter { $0.status == .downloading }.count
+        let seeding = torrents.filter { $0.status == .seeding }.count
+        let progress = torrents.isEmpty
+            ? 0
+            : torrents.reduce(0) { $0 + $1.progress } / Double(torrents.count)
+        return (active, seeding, progress)
     }
 
     func confirmAdd(source: AddSource, savePath: String) {

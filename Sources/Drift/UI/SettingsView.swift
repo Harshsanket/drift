@@ -22,6 +22,7 @@ struct SettingsView: View {
                 Text("New torrents start in this folder; the Add sheet remembers your last choice.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Show menu bar status item", isOn: $app.showMenuBarItem)
             }
 
             Section("Connection") {
@@ -88,6 +89,8 @@ struct SettingsView: View {
             baseUrl = connection.baseUrl
             username = connection.username
             writeProbeLog("[settings] shown")
+            WindowOpener.openSettings = { openWindow(id: "settings") }
+            openWindow(id: "main")
         }
     }
 
