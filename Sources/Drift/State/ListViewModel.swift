@@ -59,6 +59,7 @@ final class ListViewModel {
     var showCategories = false
     var showTags = false
     var showAddSheet = false
+    var showConnectionSheet = false
     var pendingRemoval: Set<String>?
     private var detailsCache: [String: TorrentDetails] = [:]
     private var lastAutoCollapse = Date.distantPast

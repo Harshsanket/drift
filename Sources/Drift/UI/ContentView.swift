@@ -70,6 +70,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.showAddSheet) {
             AddTorrentSheet(model: model)
         }
+        .sheet(isPresented: $model.showConnectionSheet) {
+            ConnectionSheet()
+        }
         .onAppear {
             // Verification-only: --show-add-sheet opens the sheet at launch;
             // --test-add runs the add pipeline directly (logic check without typing).
@@ -101,6 +104,31 @@ struct ContentView: View {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
                     model.requestRemoval([alertID])
+                }
+            }
+            // Verification-only: --show-connection-sheet opens the connection
+            // sheet; --test-connection pings the stored endpoint (or
+            // DRIFT_TEST_PASSWORD override) so the result is log-verifiable.
+            if ProcessInfo.processInfo.arguments.contains("--show-connection-sheet") {
+                model.showConnectionSheet = true
+            }
+            if ProcessInfo.processInfo.arguments.contains("--test-connection") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    let settings = ConnectionSettings.shared
+                    let envPassword = ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    let keychainPassword = Keychain.password(account: "password")
+                    let source = envPassword != nil
+                        ? "env(\(envPassword!.count))"
+                        : keychainPassword.map { "keychain(\($0.count))" } ?? "none"
+                    writeProbeLog("[conn] test password source=\(source)")
+                    let password = envPassword ?? keychainPassword ?? ""
+                    Task {
+                        await settings.test(
+                            baseUrl: settings.baseUrl,
+                            username: settings.username,
+                            password: password
+                        )
+                    }
                 }
             }
         }

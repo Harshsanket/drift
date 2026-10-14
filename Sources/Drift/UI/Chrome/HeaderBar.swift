@@ -334,6 +334,12 @@ private struct MoreOptionsMenu: View {
 
             Divider()
 
+            Button {
+                model.showConnectionSheet = true
+            } label: {
+                Label("Connection…", systemImage: "network")
+            }
+
             Button("Settings…") {}
                 .disabled(true)
                 .help("Settings (Phase 10)")
