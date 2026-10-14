@@ -303,6 +303,7 @@ private struct FilterField: View {
 /// column toggles, so nothing becomes unreachable at narrow widths.
 private struct MoreOptionsMenu: View {
     @Bindable var model: ListViewModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Menu {
@@ -340,9 +341,12 @@ private struct MoreOptionsMenu: View {
                 Label("Connection…", systemImage: "network")
             }
 
-            Button("Settings…") {}
-                .disabled(true)
-                .help("Settings (Phase 10)")
+            Button {
+                openWindow(id: "settings")
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+            .help("Settings")
         } label: {
             Image(systemName: "ellipsis")
         }

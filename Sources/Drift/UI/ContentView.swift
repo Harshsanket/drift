@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: ListViewModel
+    @Environment(\.openWindow) private var openWindow
     @FocusState private var filterFocused: Bool
     @State private var sidebarWidth: CGFloat = SidebarWidthPreference.defaultValue
     @State private var detailTopInset: CGFloat = DesignSystem.Metrics.titlebarBand
@@ -73,7 +74,25 @@ struct ContentView: View {
         .sheet(isPresented: $model.showConnectionSheet) {
             ConnectionSheet()
         }
+        .preferredColorScheme(AppSettings.shared.appearance.colorScheme)
         .onAppear {
+            // Verification-only: --show-settings opens the settings window.
+            if ProcessInfo.processInfo.arguments.contains("--show-settings") {
+                openWindow(id: "settings")
+            }
+            // Verification-only: --test-settings opens the window, flips
+            // appearance + destination (persisted), then restores defaults.
+            if ProcessInfo.processInfo.arguments.contains("--test-settings") {
+                openWindow(id: "settings")
+                AppSettings.shared.appearance = .dark
+                AppSettings.shared.defaultSavePath = "/tmp/drift-downloads"
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    AppSettings.shared.appearance = .system
+                    AppSettings.shared.defaultSavePath = "~/Downloads"
+                    writeProbeLog("[settings] test sequence done")
+                }
+            }
             // Verification-only: --show-add-sheet opens the sheet at launch;
             // --test-add runs the add pipeline directly (logic check without typing).
             if ProcessInfo.processInfo.arguments.contains("--show-add-sheet") {
