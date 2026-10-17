@@ -483,6 +483,7 @@ final class ListViewModel {
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
+        CompletionMonitor.shared.observe(torrents: torrents)
         reloadOrganizers()
         statistics = engine?.serverStatistics()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
@@ -694,6 +695,20 @@ final class ListViewModel {
         engine.start(ids: ids)
         refresh()
         writeProbeLog("[engine] start ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    /// qB keyboard behavior: space on a selection pauses the active torrents,
+    /// or resumes the stopped ones.
+    func toggleSelectedPlayback() {
+        let ids = Array(selectedIDs)
+        guard !ids.isEmpty else { return }
+        let selected = torrents.filter { selectedIDs.contains($0.id) }
+        let anyActive = selected.contains { $0.status != .stopped && $0.status != .error }
+        if anyActive {
+            stopTorrents(ids)
+        } else {
+            startTorrents(ids)
+        }
     }
 
     func stopTorrents(_ ids: [String]) {

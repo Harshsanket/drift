@@ -135,6 +135,7 @@ struct ContentView: View {
         .preferredColorScheme(AppSettings.shared.appearance.colorScheme)
         .onAppear {
             writeProbeLog("[nav] content appear")
+            CompletionMonitor.shared.requestPermission()
             WindowOpener.openMain = { openWindow(id: "main") }
             // Verification-only: --show-settings opens the settings window.
             if ProcessInfo.processInfo.arguments.contains("--show-settings") {

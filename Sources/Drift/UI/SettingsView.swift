@@ -24,6 +24,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("Show menu bar status item", isOn: $app.showMenuBarItem)
+                Toggle("Notify when a download completes", isOn: $app.completionNotifications)
             }
 
             Section("Connection") {

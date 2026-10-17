@@ -34,6 +34,21 @@ struct TorrentListView: View {
         .background {
             HorizontalScrollRedirector(model: model)
         }
+        // Keyboard parity with qB: space toggles stop/resume for the
+        // selection, delete removes it. Hidden buttons keep the shortcuts
+        // available from the window's key state without visual noise.
+        .background {
+            VStack(spacing: 0) {
+                Button("Toggle Selected") { model.toggleSelectedPlayback() }
+                    .keyboardShortcut(.space, modifiers: [])
+                Button("Remove Selected") {
+                    model.requestRemoval(Array(model.selectedIDs))
+                }
+                .keyboardShortcut(.delete, modifiers: [])
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+        }
         .onChange(of: model.footerHeight) { _, _ in
             // Track the animated footer per frame so the scroll viewport
             // (and the stripes) retreats with the growing glass panel

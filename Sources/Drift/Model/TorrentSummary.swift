@@ -72,8 +72,14 @@ enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
         }
     }
 
-    var tint: Color {
+    var isDone: Bool {
         switch self {
+        case .seeding, .completed, .stopped: true
+        case .downloading, .stalled, .checking, .moving, .queued, .error: false
+        }
+    }
+
+    var tint: Color {        switch self {
         case .downloading: DesignSystem.Palette.downloading
         case .seeding: DesignSystem.Palette.seeding
         case .completed: DesignSystem.Palette.completed

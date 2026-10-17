@@ -68,7 +68,7 @@ struct RSSFeed: Identifiable, Equatable, Hashable {
 }
 
 /// One row of a server-side search (`search/results`).
-struct SearchResult: Identifiable, Equatable {
+struct SearchResult: Identifiable, Equatable, Hashable {
     var fileName: String
     var fileURL: String
     var fileSize: Int64

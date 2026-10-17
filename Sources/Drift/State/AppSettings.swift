@@ -70,5 +70,13 @@ final class AppSettings {
         }
     }
 
+    var completionNotifications: Bool =
+        UserDefaults.standard.object(forKey: "notifications.completion") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(completionNotifications, forKey: "notifications.completion")
+            writeProbeLog("[settings] completionNotifications=\(completionNotifications ? "on" : "off")")
+        }
+    }
+
     var onMenuBarItemChanged: (@MainActor () -> Void)?
 }

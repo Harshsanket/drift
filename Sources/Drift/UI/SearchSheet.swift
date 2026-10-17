@@ -87,32 +87,55 @@ struct SearchSheet: View {
             }
             .width(84)
         }
+        .contextMenu(forSelectionType: SearchResult.self) { selection in
+            searchResultMenu(selection)
+        }
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Text(
-                    "\(model.searchResults.count) result\(model.searchResults.count == 1 ? "" : "s")"
-                        + (model.searchRunning ? " · still running" : "")
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Clear") {
-                    model.clearSearchResults()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.searchResults.isEmpty && !model.searchRunning)
-
-                Button("Done") {
-                    if model.searchRunning { model.stopSearch() }
-                    model.showSearchPane = false
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            resultFooter
         }
         .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func searchResultMenu(_ selection: Set<SearchResult>) -> some View {
+        if let result = selection.first {
+            Button("Download") { model.downloadSearchResult(result) }
+            Button("Copy Title") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(result.fileName, forType: .string)
+            }
+            Button("Open Page") {
+                if let url = URL(string: result.siteURL), url.scheme != nil {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
+    }
+
+    private var resultFooter: some View {
+        HStack {
+            Text(
+                "\(model.searchResults.count) result\(model.searchResults.count == 1 ? "" : "s")"
+                    + (model.searchRunning ? " · still running" : "")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("Clear") {
+                model.clearSearchResults()
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.searchResults.isEmpty && !model.searchRunning)
+
+            Button("Done") {
+                if model.searchRunning { model.stopSearch() }
+                model.showSearchPane = false
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
