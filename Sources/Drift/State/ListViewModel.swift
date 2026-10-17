@@ -8,7 +8,11 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
     case seeding
     case completed
     case stopped
+    case checking
+    case moving
+    case queued
     case stalled
+    case error
 
     var id: String { rawValue }
 
@@ -19,7 +23,11 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
         case .seeding: TorrentStatus.seeding.label
         case .completed: TorrentStatus.completed.label
         case .stopped: TorrentStatus.stopped.label
+        case .checking: TorrentStatus.checking.label
+        case .moving: TorrentStatus.moving.label
+        case .queued: TorrentStatus.queued.label
         case .stalled: TorrentStatus.stalled.label
+        case .error: TorrentStatus.error.label
         }
     }
 

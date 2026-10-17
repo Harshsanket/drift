@@ -14,6 +14,16 @@ struct TorrentSummary: Identifiable, Equatable {
     var category: String?
     var tags: [String]
 
+    /// Population parity with qBittorrent's torrent list columns.
+    var ratio: Double = 0
+    var seeds: Int = 0
+    var peers: Int = 0
+    var availability: Double = 0
+    var downloaded: Int64 = 0
+    var uploaded: Int64 = 0
+    var savePath: String = ""
+    var addedOn: TimeInterval = 0
+
     var etaSortKey: TimeInterval { eta ?? .infinity }
 }
 
@@ -23,6 +33,10 @@ enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
     case completed
     case stopped
     case stalled
+    case checking
+    case moving
+    case queued
+    case error
 
     var label: String {
         switch self {
@@ -31,6 +45,10 @@ enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
         case .completed: "Completed"
         case .stopped: "Stopped"
         case .stalled: "Stalled"
+        case .checking: "Checking"
+        case .moving: "Moving"
+        case .queued: "Queued"
+        case .error: "Error"
         }
     }
 
@@ -41,6 +59,10 @@ enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
         case .completed: "checkmark.circle.fill"
         case .stopped: "pause.circle.fill"
         case .stalled: "hourglass"
+        case .checking: "arrow.triangle.2.circlepath"
+        case .moving: "folder"
+        case .queued: "pause.circle"
+        case .error: "exclamationmark.octagon.fill"
         }
     }
 
@@ -51,6 +73,10 @@ enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
         case .completed: DesignSystem.Palette.completed
         case .stopped: DesignSystem.Palette.stopped
         case .stalled: DesignSystem.Palette.stalled
+        case .checking: DesignSystem.Palette.checking
+        case .moving: DesignSystem.Palette.moving
+        case .queued: DesignSystem.Palette.queued
+        case .error: DesignSystem.Palette.error
         }
     }
 

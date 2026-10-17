@@ -63,6 +63,9 @@ enum DesignSystem {
         static let completed = Color(red: 0.0, green: 0.32, blue: 0.64)
         static let stopped = Color.secondary
         static let stalled = Color.orange
+        static let checking = Color.cyan
+        static let moving = Color.purple
+        static let queued = Color.gray
         static let error = Color.red
         static let connectionOK = Color.green
         static let connectionDown = Color.red

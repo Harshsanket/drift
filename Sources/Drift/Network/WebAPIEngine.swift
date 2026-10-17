@@ -727,6 +727,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             .split(separator: " ")
             .map(String.init)
         let state = (fields["state"] as? String) ?? ""
+        let ratio = (fields["ratio"] as? NSNumber)?.doubleValue ?? 0
+        let availability = (fields["availability"] as? NSNumber)?.doubleValue ?? 0
+        let addedOn = (fields["added_on"] as? NSNumber)?.doubleValue ?? 0
         return TorrentSummary(
             id: id,
             name: name,
@@ -738,19 +741,30 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             eta: eta,
             timeActive: timeActive,
             category: category,
-            tags: tags
+            tags: tags,
+            ratio: ratio,
+            seeds: (fields["num_complete"] as? NSNumber)?.intValue ?? 0,
+            peers: (fields["num_incomplete"] as? NSNumber)?.intValue ?? 0,
+            availability: availability,
+            downloaded: (fields["downloaded"] as? NSNumber)?.int64Value ?? 0,
+            uploaded: (fields["uploaded"] as? NSNumber)?.int64Value ?? 0,
+            savePath: (fields["save_path"] as? String) ?? "",
+            addedOn: addedOn
         )
     }
 
     static func status(state: String, progress: Double) -> TorrentStatus {
         let s = state.lowercased()
-        if s.contains("stopped") || s.contains("paused") { return .stopped }
-        if s.contains("stalled") || s.contains("error") || s.contains("missing")
-            || s.contains("unknown") { return .stalled }
-        if s.contains("up") || s.contains("upload") { return .seeding }
+        if s.hasPrefix("error") || s == "missingfiles" { return .error }
+        if s.hasPrefix("checking") { return .checking }
+        if s == "moving" { return .moving }
+        if s == "queueddl" || s == "queuedup" { return .queued }
+        if s == "stoppeddl" || s == "stoppedup"
+            || s == "pauseddl" || s == "pausedup" { return .stopped }
+        if s == "uploading" || s == "forcedup" || s == "stalledup" { return .seeding }
+        if s == "stalleddl" { return .stalled }
         if s.contains("down") || s.contains("dl") || s.contains("meta")
-            || s.contains("checking") || s.contains("allocating") || s.contains("moving")
-            || s.contains("queued") { return .downloading }
+            || s.contains("allocat") { return .downloading }
         return progress >= 1 ? .seeding : .downloading
     }
 
