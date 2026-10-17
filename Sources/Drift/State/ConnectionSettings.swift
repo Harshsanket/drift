@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+extension Notification.Name {
+    static let driftConnectionSettingsSaved = Notification.Name("drift.connectionSettingsSaved")
+}
+
 @MainActor
 @Observable
 final class ConnectionSettings {
@@ -57,6 +61,7 @@ final class ConnectionSettings {
             Keychain.setPassword(password, account: "password")
         }
         testStatus = nil
+        NotificationCenter.default.post(name: .driftConnectionSettingsSaved, object: self)
     }
 
     func test(baseUrl: String, username: String, password: String) async {

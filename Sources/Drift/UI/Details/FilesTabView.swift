@@ -54,6 +54,7 @@ struct FilesTabView: View {
                 }
                 .width(90)
             }
+            .scrollContentBackground(.hidden)
             .frame(height: 190)
         }
     }

@@ -45,6 +45,7 @@ struct TrackersTabView: View {
                 }
                 .width(100)
             }
+            .scrollContentBackground(.hidden)
             .frame(height: 190)
         }
     }

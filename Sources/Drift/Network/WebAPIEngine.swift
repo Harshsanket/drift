@@ -35,6 +35,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     private var isFetching = false
 
     var onUpdate: (@MainActor () -> Void)?
+    var onConnectionLost: (@MainActor (String) -> Void)?
 
     init(base: URL, username: String = "", password: String = "") {
         self.base = base
@@ -174,7 +175,8 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     var isSuspended: Bool { lock.withLock { suspended } }
 
-    func resumeSync() async {
+    @discardableResult
+    func resumeSync() async -> String? {
         do {
             let version = try await authenticate()
             lock.withLock {
@@ -183,8 +185,10 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             }
             startSync()
             writeProbeLog("[sync] resumed \(version)")
+            return version
         } catch {
             writeProbeLog("[sync] resume failed: \(describe(error))")
+            return nil
         }
     }
 
@@ -228,6 +232,10 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
                 }
                 if consecutiveFailures >= 10 {
                     writeProbeLog("[sync] giving up after \(consecutiveFailures) failures")
+                    if let onConnectionLost {
+                        let message = describe(error)
+                        Task { @MainActor in onConnectionLost(message) }
+                    }
                     break
                 }
                 lock.withLock { lastRid = 0 }

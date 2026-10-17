@@ -42,18 +42,63 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
     }
 }
 
+/// The live connection state to the qBittorrent Web UI. Drift holds no torrent
+/// data of its own: with no connection there is nothing to show and nothing to
+/// act on.
+enum ConnectionState: Equatable {
+    case disconnected
+    case connecting
+    case connected(version: String)
+    case failed(message: String)
+
+    var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+
+    var version: String? {
+        if case .connected(let version) = self { return version }
+        return nil
+    }
+
+    var errorMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
+    }
+
+    var label: String {
+        switch self {
+        case .disconnected: "Not connected"
+        case .connecting: "Connecting…"
+        case .connected(let version): "Connected — qBittorrent \(version)"
+        case .failed: "Not connected"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class ListViewModel {
-    private var engine: TorrentEngine
-    var isRealBackend: Bool { engine is WebAPIEngine }
+    private var engine: (any TorrentEngine)?
+    private(set) var connectionState: ConnectionState = .disconnected
+    private var reconnectTask: Task<Void, Never>?
+    private var connectedKey: String?
+    private var connectInFlight = false
+    private var pendingConnect = false
+
+    var isConnected: Bool { connectionState.isConnected }
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
     var statusFilter: StatusFilter = .all
     var searchText = ""
     var detailsCollapsed = true
-    var isConnected = true
+    /// 0 = details panel fully hidden, 1 = fully revealed. Driven frame by
+    /// frame by `setDetailsExpanded` so the footer grows smoothly and the
+    /// table viewport (and its stripes) retreat in lockstep with the glass.
+    var detailsProgress: CGFloat = 0
+    var footerHeight: CGFloat = 0
+    private var detailsAnimation: Task<Void, Never>?
     var sortOrder: [KeyPathComparator<TorrentSummary>] = []
     var columnCustomization = TableColumnCustomization<TorrentSummary>()
     var selectedTab: DetailTab = .general
@@ -64,42 +109,113 @@ final class ListViewModel {
     var pendingRemoval: Set<String>?
     private var detailsCache: [String: TorrentDetails] = [:]
     private var detailsFetching = false
+    /// Guard so verification hooks on `onAppear` run once even if capture
+    /// tooling occludes the window and SwiftUI re-appears the view.
+    var didRunShowDetailsHook = false
     private var lastAutoCollapse = Date.distantPast
     private(set) var windowVisible = true
 
-    init(engine: TorrentEngine? = nil) {
-        self.engine = engine ?? MockTorrentEngine()
+    init(engine: (any TorrentEngine)? = nil, connectionState: ConnectionState = .disconnected) {
+        self.engine = engine
+        self.connectionState = connectionState
         AppLifecycle.shared.onSleep = { [weak self] in self?.handleSystemSleep() }
         AppLifecycle.shared.onWake = { [weak self] in self?.handleSystemWake() }
         AppLifecycle.shared.start()
         AppSettings.shared.onMenuBarItemChanged = { [weak self] in
             self?.recomputeSyncTier()
         }
+        NotificationCenter.default.addObserver(
+            forName: .driftConnectionSettingsSaved, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.connectionSettingsChanged() }
+        }
         refresh()
-        Task { await connectRealBackend() }
+        if engine == nil, !connectionState.isConnected {
+            Task { await startConnection() }
+        }
     }
 
-    func connectRealBackend(force: Bool = false, passwordOverride: String? = nil) async {
-        guard !(engine is WebAPIEngine) else { return }
-        let settings = ConnectionSettings.shared
-        guard force || settings.lastVersion != nil else {
-            writeProbeLog("[sync] skipped (no prior successful connection)")
+    /// Launch flow: connect if a previous connection exists, otherwise ask for
+    /// one. A failed attempt surfaces the sheet with the error instead of
+    /// silently degrading — there is no offline mode.
+    private func startConnection() async {
+        // Verification-only: lets UI probes run without the sheet in the way.
+        guard !ProcessInfo.processInfo.arguments.contains("--no-auto-connect") else {
+            writeProbeLog("[sync] auto-connect suppressed")
             return
         }
+        guard ConnectionSettings.shared.lastVersion != nil else {
+            showConnectionSheet = true
+            return
+        }
+        await connectRealBackend()
+        if !isConnected {
+            showConnectionSheet = true
+            scheduleReconnect()
+        }
+    }
+
+    /// After a Settings-window save: reconnect when not connected or when the
+    /// endpoint actually changed; a redundant save against the live endpoint
+    /// leaves the running engine alone.
+    private func connectionSettingsChanged() {
+        let settings = ConnectionSettings.shared
+        let key = "\(settings.baseUrl)|\(settings.username)"
+        guard !isConnected || key != connectedKey else { return }
+        Task {
+            await connectRealBackend()
+            if !isConnected {
+                showConnectionSheet = true
+            }
+        }
+    }
+
+    func connectRealBackend(passwordOverride: String? = nil) async {
+        guard !connectInFlight else {
+            pendingConnect = true
+            return
+        }
+        connectInFlight = true
+        defer { connectInFlight = false }
+        repeat {
+            pendingConnect = false
+            await performConnect(passwordOverride: passwordOverride)
+        } while pendingConnect
+    }
+
+    private func performConnect(passwordOverride: String?) async {
+        let settings = ConnectionSettings.shared
         guard let url = WebAPIEngine.url(from: settings.baseUrl) else {
+            connectionState = .failed(message: WebAPIError.invalidURL.message)
             writeProbeLog("[sync] invalid url \(settings.baseUrl)")
             return
+        }
+        let previousVersion = connectionState.version
+        connectionState = .connecting
+        let password: String
+        if let passwordOverride {
+            password = passwordOverride
+        } else {
+            // Off the main actor: a locked keychain (or a SecurityAgent prompt
+            // on an ad-hoc build) must not freeze launch behind the dialog.
+            password = await Task.detached(priority: .userInitiated) {
+                Keychain.password(account: "password") ?? ""
+            }.value
         }
         let real = WebAPIEngine(
             base: url,
             username: settings.username,
-            password: passwordOverride ?? settings.password
+            password: password
         )
         do {
             let version = try await real.authenticate()
             real.onUpdate = { [weak self] in
                 self?.refresh()
             }
+            real.onConnectionLost = { [weak self] message in
+                self?.handleConnectionLost(message)
+            }
+            (engine as? WebAPIEngine)?.stopSync()
             real.startSync()
             engine = real
             detailsCache.removeAll()
@@ -107,15 +223,50 @@ final class ListViewModel {
             if let passwordOverride {
                 // A working password wins: keep the Keychain in sync so
                 // launch-time auto-connect doesn't retry stale credentials.
-                Keychain.setPassword(passwordOverride, account: "password")
+                // Fire-and-forget: a keychain prompt must not hold back the
+                // connected state.
+                Task.detached(priority: .utility) {
+                    Keychain.setPassword(passwordOverride, account: "password")
+                }
             }
             settings.noteConnected(version: version)
+            connectedKey = "\(settings.baseUrl)|\(settings.username)"
+            connectionState = .connected(version: version)
+            settings.testStatus = .success("Connected — qBittorrent \(version)")
+            reconnectTask?.cancel()
+            reconnectTask = nil
             refresh()
             writeProbeLog("[sync] connected \(version)")
-        } catch let error as WebAPIError {
-            writeProbeLog("[sync] connect failed: \(error.message)")
         } catch {
-            writeProbeLog("[sync] connect failed: \(error)")
+            let message = (error as? WebAPIError)?.message ?? error.localizedDescription
+            // A failed re-point keeps the previous, still-running backend so
+            // the status bar reports the connection that actually exists.
+            connectionState = previousVersion.map { .connected(version: $0) }
+                ?? .failed(message: message)
+            settings.testStatus = .error(message)
+            writeProbeLog("[sync] connect failed: \(message)")
+        }
+    }
+
+    private func handleConnectionLost(_ message: String) {
+        guard !isConnected else { return }
+        connectionState = .failed(message: message)
+        writeProbeLog("[sync] connection lost: \(message)")
+        scheduleReconnect()
+    }
+
+    /// qBittorrent may restart at any time; retry the saved endpoint until it
+    /// is back (or the credentials/URL are changed).
+    private func scheduleReconnect() {
+        guard reconnectTask == nil else { return }
+        reconnectTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self, !self.isConnected else { return }
+                guard ConnectionSettings.shared.lastVersion != nil else { return }
+                await self.connectRealBackend()
+            }
+            self?.reconnectTask = nil
         }
     }
 
@@ -124,19 +275,48 @@ final class ListViewModel {
             writeProbeLog("[model] toggleDetails suppressed")
             return
         }
-        withAnimation(.spring(duration: 0.35)) {
-            detailsCollapsed.toggle()
-        }
+        setDetailsExpanded(detailsCollapsed)
         writeProbeLog("[model] toggleDetails -> collapsed=\(detailsCollapsed)")
     }
 
     func collapseDetailsFromOutsideClick() {
         guard !detailsCollapsed else { return }
         lastAutoCollapse = Date()
-        withAnimation(.spring(duration: 0.35)) {
-            detailsCollapsed = true
-        }
+        setDetailsExpanded(false)
         writeProbeLog("[model] collapsed from outside click")
+    }
+
+    /// Tweens `detailsProgress` per frame instead of relying on a SwiftUI
+    /// animation: `onGeometryChange` only reports endpoints, so a view-level
+    /// animation would leave the scroll viewport (and the stripes under the
+    /// glass) lagging behind the growing footer. Driving the model value at
+    /// ~60fps makes every layout pass measure a new footer height, which the
+    /// probe turns into the clip inset on the same frame.
+    private func setDetailsExpanded(_ expanded: Bool) {
+        detailsCollapsed = !expanded
+        detailsAnimation?.cancel()
+        let target: CGFloat = expanded ? 1 : 0
+        let start = detailsProgress
+        guard start != target else {
+            detailsProgress = target
+            return
+        }
+        let duration: TimeInterval = ProcessInfo.processInfo.arguments.contains("--slow-anim")
+            ? 1.0
+            : 0.22
+        detailsAnimation = Task { @MainActor [weak self] in
+            let begin = Date()
+            while !Task.isCancelled {
+                let t = min(1, Date().timeIntervalSince(begin) / duration)
+                let eased = 1 - pow(1 - t, 3)
+                self?.detailsProgress = start + (target - start) * CGFloat(eased)
+                if t >= 1 { break }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            if !Task.isCancelled {
+                self?.detailsProgress = target
+            }
+        }
     }
 
     var filtered: [TorrentSummary] {
@@ -158,8 +338,10 @@ final class ListViewModel {
         return details(for: id)
     }
 
-    func details(for id: String) -> TorrentDetails {
+    func details(for id: String) -> TorrentDetails? {
+        guard torrents.contains(where: { $0.id == id }) else { return nil }
         if let cached = detailsCache[id] { return cached }
+        guard let engine else { return nil }
         scheduleDetailsFetch(for: id)
         let details = engine.loadDetails(for: id)
         detailsCache[id] = details
@@ -172,9 +354,8 @@ final class ListViewModel {
     }
 
     private func scheduleDetailsFetch(for id: String) {
-        guard !detailsFetching else { return }
+        guard !detailsFetching, let engine else { return }
         detailsFetching = true
-        let engine = self.engine
         Task {
             let fetched = await engine.fetchDetails(for: id)
             detailsFetching = false
@@ -185,7 +366,8 @@ final class ListViewModel {
     }
 
     func setFilePriority(file: FileRow, priority: FilePriority) {
-        guard let id = selectedIDs.first,
+        guard let engine,
+              let id = selectedIDs.first,
               let position = detailsCache[id]?.files.firstIndex(where: { $0.id == file.id }),
               file.priority != priority
         else { return }
@@ -207,7 +389,7 @@ final class ListViewModel {
     }
 
     func refresh() {
-        torrents = engine.loadTorrents()
+        torrents = engine?.loadTorrents() ?? []
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
@@ -235,7 +417,9 @@ final class ListViewModel {
         let tier: WebAPIEngine.SyncTier = targetActive ? .active : .summary
         if real.isSuspended {
             Task {
-                await real.resumeSync()
+                if let version = await real.resumeSync() {
+                    connectionState = .connected(version: version)
+                }
                 real.setSyncTier(tier)
             }
         } else {
@@ -252,7 +436,14 @@ final class ListViewModel {
         writeProbeLog("[lifecycle] system wake — sync resuming")
         Task {
             if let real = engine as? WebAPIEngine {
-                await real.resumeSync()
+                if let version = await real.resumeSync() {
+                    connectionState = .connected(version: version)
+                    reconnectTask?.cancel()
+                    reconnectTask = nil
+                } else if !isConnected {
+                    connectionState = .failed(message: "qBittorrent is not reachable")
+                    scheduleReconnect()
+                }
             }
             refresh()
             recomputeSyncTier()
@@ -269,6 +460,7 @@ final class ListViewModel {
     }
 
     func confirmAdd(source: AddSource, savePath: String) {
+        guard let engine, isConnected else { return }
         let summary = engine.addTorrent(source: source, savePath: savePath)
         refresh()
         selectedIDs = [summary.id]
@@ -277,21 +469,21 @@ final class ListViewModel {
     }
 
     func startTorrents(_ ids: [String]) {
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, let engine, isConnected else { return }
         engine.start(ids: ids)
         refresh()
         writeProbeLog("[engine] start ids=\(ids.sorted().joined(separator: ","))")
     }
 
     func stopTorrents(_ ids: [String]) {
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, let engine, isConnected else { return }
         engine.stop(ids: ids)
         refresh()
         writeProbeLog("[engine] stop ids=\(ids.sorted().joined(separator: ","))")
     }
 
     func requestRemoval(_ ids: [String]) {
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, isConnected else { return }
         pendingRemoval = Set(ids)
         writeProbeLog("[engine] removal requested ids=\(ids.sorted().joined(separator: ","))")
     }
@@ -302,7 +494,7 @@ final class ListViewModel {
     }
 
     func confirmRemoval() {
-        guard let ids = pendingRemoval, !ids.isEmpty else { return }
+        guard let ids = pendingRemoval, !ids.isEmpty, let engine, isConnected else { return }
         engine.remove(ids: Array(ids), deleteFiles: false)
         selectedIDs.subtract(ids)
         for id in ids { detailsCache.removeValue(forKey: id) }
@@ -312,11 +504,11 @@ final class ListViewModel {
     }
 
     var canPauseAll: Bool {
-        torrents.contains { $0.status != .stopped }
+        isConnected && torrents.contains { $0.status != .stopped }
     }
 
     var canResumeAll: Bool {
-        torrents.contains { $0.status == .stopped }
+        isConnected && torrents.contains { $0.status == .stopped }
     }
 
     func pauseAll() {

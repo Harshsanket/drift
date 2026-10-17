@@ -53,16 +53,23 @@ struct ContentView: View {
                                 }
                         }
                     }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        footer
-                    }
+                    // The footer floats above the table instead of insetting it,
+                    // so the horizontal scrollbar stays at the window's bottom
+                    // edge, below the info bar. The table probe applies a
+                    // matching scroll content inset so rows clear the bar.
                     // The window itself is transparent so the sidebar can show
                     // the desktop; the detail column must stay solid.
                     .background(Color(nsColor: .windowBackgroundColor))
+                    .overlay(alignment: .bottom) {
+                        footer
+                    }
             }
             .tint(DesignSystem.Palette.accent)
             .onPreferenceChange(SidebarWidthPreference.self) { width in
                 sidebarWidth = width
+            }
+            .onChange(of: model.selectedIDs) { _, ids in
+                writeProbeLog("[model] selection count=\(ids.count) first=\(ids.first?.prefix(8) ?? "-")")
             }
 
             header.ignoresSafeArea(.container, edges: .top)
@@ -102,6 +109,33 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--show-add-sheet") {
                 model.showAddSheet = true
             }
+            if ProcessInfo.processInfo.arguments.contains("--show-details"),
+               !model.didRunShowDetailsHook {
+                model.didRunShowDetailsHook = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    model.toggleDetails()
+                }
+            }
+            // Verification-only: --test-select programmatically selects rows
+            // (same SwiftUI path as a click) so captures can diff selection.
+            if ProcessInfo.processInfo.arguments.contains("--test-select") {
+                Task { @MainActor in
+                    for _ in 0..<40 {
+                        if model.isConnected, model.torrents.count > 6 { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    try? await Task.sleep(for: .seconds(4))
+                    writeProbeLog("[ui] test-select imminent row2")
+                    try? await Task.sleep(for: .seconds(1))
+                    model.selectedIDs = [model.torrents[2].id]
+                    writeProbeLog("[ui] test-select row2 done")
+                    try? await Task.sleep(for: .seconds(6))
+                    writeProbeLog("[ui] test-select imminent row5")
+                    try? await Task.sleep(for: .seconds(1))
+                    model.selectedIDs = [model.torrents[5].id]
+                    writeProbeLog("[ui] test-select row5 done")
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("--test-add") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     model.confirmAdd(
@@ -109,70 +143,50 @@ struct ContentView: View {
                         savePath: "~/Downloads"
                     )
                 }
-            }
-            // Verification-only: --test-actions runs the mutation pipeline
-            // (stop, start, remove), then opens the removal confirmation.
-            if ProcessInfo.processInfo.arguments.contains("--test-actions") {
-                let torrents = model.torrents
-                guard torrents.count >= 8 else { return }
-                let stopID = torrents[0].id
-                let startID = torrents[3].id
-                let removeID = torrents[4].id
-                let alertID = torrents[6].id
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    model.stopTorrents([stopID])
-                    model.startTorrents([startID])
-                    model.requestRemoval([removeID])
+                // The test torrent is real state now; drop it again after
+                // the probe has verified the add pipeline.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    writeProbeLog("[sheet] test-add cleanup \(model.torrents.count) torrents")
+                    model.requestRemoval(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"])
                     model.confirmRemoval()
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-                    model.requestRemoval([alertID])
-                }
             }
-            // Verification-only: --test-mutations drives start/stop/remove/add
-            // against the real backend once --test-sync has connected.
+            // Verification-only: --test-mutations drives add/stop/start/remove
+            // against the native engine (log-verifiable sequence).
             if ProcessInfo.processInfo.arguments.contains("--test-mutations") {
                 Task { @MainActor in
-                    for _ in 0..<40 {
-                        if model.isRealBackend { break }
-                        try? await Task.sleep(for: .milliseconds(250))
-                    }
-                    guard model.isRealBackend else {
-                        writeProbeLog("[engine] mutations skipped (mock backend)")
-                        return
-                    }
-                    var stoppedTarget: String?
-                    if let running = model.torrents.first(where: { $0.status != .stopped }) {
-                        stoppedTarget = running.id
-                        model.stopTorrents([running.id])
-                    }
-                    try? await Task.sleep(for: .seconds(2))
-                    if let stopped = model.torrents.first(where: {
-                        $0.status == .stopped && $0.id != stoppedTarget
-                    }) {
-                        model.startTorrents([stopped.id])
-                    }
-                    try? await Task.sleep(for: .seconds(2))
+                    writeProbeLog("[engine] mutations start count=\(model.torrents.count)")
                     model.confirmAdd(
-                        source: .magnetOrURL("magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc&dn=drift-added-test"),
+                        source: .magnetOrURL("magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&dn=drift-added-test"),
                         savePath: "~/Downloads"
                     )
-                    try? await Task.sleep(for: .seconds(2.5))
-                    if model.torrents.contains(where: { $0.id == "cccccccccccccccccccccccccccccccccccccccc" }) {
-                        model.requestRemoval(["cccccccccccccccccccccccccccccccccccccccc"])
-                        model.confirmRemoval()
-                    }
                     try? await Task.sleep(for: .seconds(2))
-                    if let ubuntu = model.torrents.first(where: { $0.name.contains("ubuntu-24.04") }) {
-                        model.requestRemoval([ubuntu.id])
+                    let added = model.torrents.first { $0.id == String(repeating: "b", count: 40) }
+                    writeProbeLog("[engine] mutations added=\(added != nil)")
+                    if let added {
+                        model.stopTorrents([added.id])
+                        try? await Task.sleep(for: .seconds(2))
+                        writeProbeLog("[engine] mutations stopped=\(model.torrents.first { $0.id == added.id }?.status.rawValue ?? "gone")")
+                        model.startTorrents([added.id])
+                        try? await Task.sleep(for: .seconds(2))
+                        writeProbeLog("[engine] mutations restarted=\(model.torrents.first { $0.id == added.id }?.status.rawValue ?? "gone")")
+                        model.requestRemoval([added.id])
                         model.confirmRemoval()
+                        try? await Task.sleep(for: .seconds(1))
+                        writeProbeLog("[engine] mutations removed=\(model.torrents.first { $0.id == added.id } == nil)")
                     }
-                    try? await Task.sleep(for: .seconds(2))
-                    model.confirmAdd(
-                        source: .torrentFile(URL(fileURLWithPath: "/tmp/qbt-ubuntu.torrent")),
-                        savePath: "~/Downloads"
-                    )
-                    try? await Task.sleep(for: .seconds(2.5))
+                    if FileManager.default.fileExists(atPath: "/tmp/qbt-ubuntu.torrent") {
+                        model.confirmAdd(
+                            source: .torrentFile(URL(fileURLWithPath: "/tmp/qbt-ubuntu.torrent")),
+                            savePath: "/tmp/drift-e2e"
+                        )
+                        try? await Task.sleep(for: .seconds(3))
+                        if let fileTorrent = model.torrents.first(where: { $0.name.contains("ubuntu") }) {
+                            writeProbeLog("[engine] mutations file-add ok name=\(fileTorrent.name) size=\(fileTorrent.size)")
+                            model.requestRemoval([fileTorrent.id])
+                            model.confirmRemoval()
+                        }
+                    }
                     writeProbeLog("[engine] mutations sequence done")
                 }
             }
@@ -182,7 +196,7 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-details") {
                 Task { @MainActor in
                     for _ in 0..<40 {
-                        if model.isRealBackend { break }
+                        if model.isConnected { break }
                         try? await Task.sleep(for: .milliseconds(250))
                     }
                     @MainActor func snapshot() {
@@ -207,7 +221,7 @@ struct ContentView: View {
                         return
                     }
                     model.selectedIDs = [first.id]
-                    model.detailsCollapsed = false
+                    model.toggleDetails()
                     try? await Task.sleep(for: .seconds(2.5))
                     snapshot()
                     if let file = model.selectedDetails?.files.first {
@@ -228,10 +242,9 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-lifecycle") {
                 Task { @MainActor in
                     await model.connectRealBackend(
-                        force: true,
                         passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
                     )
-                    guard model.isRealBackend else {
+                    guard model.isConnected else {
                         writeProbeLog("[lifecycle] skipped (connect failed)")
                         return
                     }
@@ -254,10 +267,9 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[menubar] hook start")
                     await model.connectRealBackend(
-                        force: true,
                         passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
                     )
-                    guard model.isRealBackend else {
+                    guard model.isConnected else {
                         writeProbeLog("[menubar] skipped (connect failed)")
                         return
                     }
@@ -359,10 +371,9 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[bench] mode=\(mode) start")
                     await model.connectRealBackend(
-                        force: true,
                         passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
                     )
-                    guard model.isRealBackend else {
+                    guard model.isConnected else {
                         writeProbeLog("[bench] skipped (connect failed)")
                         return
                     }
@@ -419,7 +430,6 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-sync") {
                 Task {
                     await model.connectRealBackend(
-                        force: true,
                         passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
                     )
                     var last = ""
@@ -483,10 +493,15 @@ struct ContentView: View {
     /// surface into the details panel rather than stacking a second bar.
     private var footer: some View {
         VStack(spacing: 0) {
-            if !model.detailsCollapsed {
-                DetailsPanelView(model: model)
-                    .transition(.opacity)
-            }
+            // Always present, revealed top-down by the animated progress so
+            // the glass grows smoothly and the table retreats per frame.
+            DetailsPanelView(model: model)
+                .frame(
+                    height: DesignSystem.Metrics.detailsPanelHeight * model.detailsProgress,
+                    alignment: .top
+                )
+                .clipped()
+                .opacity(model.detailsProgress)
 
             StatusbarView(model: model)
         }
@@ -496,10 +511,19 @@ struct ContentView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: footerRadius, style: .continuous))
         .onTapGesture(count: 2) {
+            writeProbeLog("[ui] footer double tap")
             model.toggleDetails()
         }
         .help(model.detailsCollapsed ? "Double-click to show details" : "Double-click to hide details")
         .padding(.horizontal, DesignSystem.Metrics.statusBarSideMargin)
         .padding(.bottom, DesignSystem.Metrics.statusBarBottomMargin)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            if abs(height - model.footerHeight) > 0.5 {
+                model.footerHeight = height
+                writeProbeLog("[footer] height=\(height)")
+            }
+        }
     }
 }

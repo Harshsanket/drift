@@ -31,6 +31,10 @@ enum DesignSystem {
         /// Clears the standard traffic-light cluster (x 9…69) plus breathing room.
         static let trafficLightInset: CGFloat = 86
         static let statusBarHeight: CGFloat = 32
+        /// Natural height of the details panel above the status bar. The panel
+        /// is revealed by scaling this height with the model's animation
+        /// progress, so the table viewport and its stripes retreat per frame.
+        static let detailsPanelHeight: CGFloat = 265
         /// Torrent table geometry: SwiftUI's table cell hosting adds 8pt of
         /// style padding to cell content, so 4 + 18 + 4 (+ 8) = 34pt rows.
         static let tableRowHeight: CGFloat = 34
@@ -49,7 +53,7 @@ enum DesignSystem {
         static let sidebarReserve: CGFloat = 220
         /// Floating status bar: margins measured from the main content edges.
         static let statusBarSideMargin: CGFloat = 14
-        static let statusBarBottomMargin: CGFloat = 12
+        static let statusBarBottomMargin: CGFloat = 16
     }
 
     enum Palette {

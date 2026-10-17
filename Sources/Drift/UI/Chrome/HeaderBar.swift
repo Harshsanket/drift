@@ -101,14 +101,18 @@ struct HeaderTrailingControls: View {
     var body: some View {
         let fit = HeaderFit(width: availableWidth)
         HStack(spacing: DesignSystem.Metrics.controlGap) {
-            // Add Torrent — always present.
+            // Add Torrent — disabled until a connection exists: adds go to
+            // qBittorrent, so there is nothing to add to while disconnected.
             CapsuleIconButton(
                 systemImage: "plus",
                 title: "Add Torrent",
-                help: "Add torrent",
+                help: model.isConnected
+                    ? "Add torrent"
+                    : "Connect to qBittorrent first",
                 action: { model.showAddSheet = true }
             )
             .keyboardShortcut("o", modifiers: .command)
+            .disabled(!model.isConnected)
 
             TransportControls(model: model)
 
@@ -125,7 +129,10 @@ struct HeaderTrailingControls: View {
                 CapsuleIconButton(
                     systemImage: model.detailsCollapsed ? "info.circle" : "info.circle.fill",
                     title: model.detailsCollapsed ? "Expand details" : "Collapse details",
-                    action: { model.toggleDetails() }
+                    action: {
+                        writeProbeLog("[ui] header info button")
+                        model.toggleDetails()
+                    }
                 )
             }
         }
@@ -310,8 +317,8 @@ private struct MoreOptionsMenu: View {
             Toggle("Details Panel", isOn: Binding(
                 get: { !model.detailsCollapsed },
                 set: { newValue in
-                    withAnimation(.spring(duration: 0.35)) {
-                        model.detailsCollapsed = !newValue
+                    if newValue == model.detailsCollapsed {
+                        model.toggleDetails()
                     }
                 }
             ))
@@ -336,17 +343,18 @@ private struct MoreOptionsMenu: View {
             Divider()
 
             Button {
-                model.showConnectionSheet = true
-            } label: {
-                Label("Connection…", systemImage: "network")
-            }
-
-            Button {
                 openWindow(id: "settings")
             } label: {
                 Label("Settings…", systemImage: "gearshape")
             }
             .help("Settings")
+
+            Button {
+                model.showConnectionSheet = true
+            } label: {
+                Label("Connection…", systemImage: "network")
+            }
+            .help("Connection settings")
         } label: {
             Image(systemName: "ellipsis")
         }

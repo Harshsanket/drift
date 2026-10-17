@@ -59,6 +59,7 @@ struct PeersTabView: View {
                 }
                 .width(80)
             }
+            .scrollContentBackground(.hidden)
             .frame(height: 190)
         }
     }

@@ -1,21 +1,19 @@
 import SwiftUI
 
 /// The content of the floating status bar: connection state on the left,
-/// transfer speeds on the right, in a single balanced row. The surrounding
-/// Liquid Glass surface is supplied by the expanding footer in `ContentView`.
+/// global transfer speeds on the right, in a single balanced row. The
+/// surrounding Liquid Glass surface is supplied by the expanding footer in
+/// `ContentView`.
 struct StatusbarView: View {
     let model: ListViewModel
 
     var body: some View {
         HStack(spacing: DesignSystem.Spacing.lg) {
             HStack(spacing: DesignSystem.Spacing.sm) {
-                Circle()
-                    .fill(model.isConnected
-                          ? DesignSystem.Palette.connectionOK
-                          : DesignSystem.Palette.connectionDown)
-                    .frame(width: 8, height: 8)
-                Text(model.isConnected ? "Connected" : "Disconnected")
+                connectionIndicator
+                Text(model.connectionState.label)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: DesignSystem.Spacing.md)
@@ -37,6 +35,21 @@ struct StatusbarView: View {
         .lineLimit(1)
         .padding(.horizontal, DesignSystem.Spacing.lg)
         .frame(maxWidth: .infinity, minHeight: DesignSystem.Metrics.statusBarHeight)
+    }
+
+    @ViewBuilder
+    private var connectionIndicator: some View {
+        switch model.connectionState {
+        case .connected:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(DesignSystem.Palette.seeding)
+        case .connecting:
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.secondary)
+        case .disconnected, .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        }
     }
 
     private func speed(systemImage: String, value: Int64, tint: Color) -> some View {

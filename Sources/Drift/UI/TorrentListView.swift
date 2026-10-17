@@ -90,22 +90,58 @@ struct TorrentListView: View {
             .customizationID("timeActive")
         }
         .tableStyle(.inset)
-        .alternatingRowBackgrounds(.enabled)
+        // Selection clicks trigger a SwiftUI re-render of the table whose
+        // implicit animation eased every row/cell from its un-padded
+        // mid-render geometry to the final one — a visible ~5pt/10pt shift
+        // for a few hundred ms after every click. Table updates never need
+        // animation, so strip it from the whole update transaction.
+        .transaction { $0.animation = nil }
+        // SwiftUI draws its own alternating background at the default 24pt row
+        // metric behind the AppKit table; the probe stripes the real 34pt rows,
+        // but SwiftUI's pattern used to leak into the empty area below the last
+        // row at the wrong pitch. Disable it and let the probe own striping.
+        .alternatingRowBackgrounds(.disabled)
         .simultaneousGesture(TapGesture().onEnded {
             model.collapseDetailsFromOutsideClick()
         })
         .background {
             HorizontalScrollRedirector(model: model)
         }
+        .onChange(of: model.footerHeight) { _, _ in
+            // Track the animated footer per frame so the scroll viewport
+            // (and the stripes) retreats with the growing glass panel
+            // instead of being caught underneath it.
+            HorizontalScrollRedirector.configureNow()
+        }
         .overlay {
             if model.filtered.isEmpty {
-                ContentUnavailableView {
-                    Label("No Torrents", systemImage: "tray")
-                } description: {
-                    Text(model.searchText.isEmpty
-                         ? "Add a magnet link or .torrent file to get started"
-                         : "No torrents match “\(model.searchText)”")
+                Group {
+                    if model.isConnected {
+                        ContentUnavailableView {
+                            Label("No Torrents", systemImage: "tray")
+                        } description: {
+                            Text(model.searchText.isEmpty
+                                 ? "Add a magnet link or .torrent file to get started"
+                                 : "No torrents match “\(model.searchText)”")
+                        }
+                    } else {
+                        ContentUnavailableView {
+                            Label("Not Connected", systemImage: "bolt.horizontal.circle")
+                        } description: {
+                            Text(model.connectionState.label)
+                        } actions: {
+                            Button("Connection Settings…") {
+                                model.showConnectionSheet = true
+                            }
+                        }
+                    }
                 }
+                // Keep the empty state clear of the floating footer. This pads
+                // only the overlay — padding the Table itself would shrink the
+                // backing scroll view and strand the horizontal scrollbar above
+                // the footer instead of letting it ride the window's bottom
+                // edge, below the info bar.
+                .padding(.bottom, model.footerHeight)
             }
         }
         .alert(
@@ -160,7 +196,7 @@ private struct TorrentRowMenu: View {
         } label: {
             Label("Start", systemImage: "play.fill")
         }
-        .disabled(torrent.status != .stopped)
+        .disabled(!model.isConnected || torrent.status != .stopped)
         .help("Start")
 
         Button {
@@ -168,7 +204,7 @@ private struct TorrentRowMenu: View {
         } label: {
             Label("Stop", systemImage: "pause.fill")
         }
-        .disabled(torrent.status == .stopped)
+        .disabled(!model.isConnected || torrent.status == .stopped)
         .help("Stop")
 
         Button {
@@ -176,6 +212,7 @@ private struct TorrentRowMenu: View {
         } label: {
             Label("Remove", systemImage: "trash")
         }
+        .disabled(!model.isConnected)
         .help("Remove")
 
         Divider()

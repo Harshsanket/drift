@@ -14,6 +14,7 @@ struct SourcesTabView: View {
                         .truncationMode(.middle)
                 }
             }
+            .scrollContentBackground(.hidden)
             .frame(height: 190)
         }
     }

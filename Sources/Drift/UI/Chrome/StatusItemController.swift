@@ -66,10 +66,10 @@ final class StatusItemController: NSObject {
         stats.isEnabled = false
         let counts = NSMenuItem(title: "No torrents", action: nil, keyEquivalent: "")
         counts.isEnabled = false
-        let connection = NSMenuItem(title: "Not connected", action: nil, keyEquivalent: "")
-        connection.isEnabled = false
         let open = NSMenuItem(title: "Open Drift", action: #selector(openMainAction), keyEquivalent: "o")
         open.target = self
+        let connection = NSMenuItem(title: "Connection…", action: #selector(openConnectionAction), keyEquivalent: "")
+        connection.target = self
         let pause = NSMenuItem(title: "Pause All", action: #selector(pauseAllAction), keyEquivalent: "")
         pause.target = self
         let resume = NSMenuItem(title: "Resume All", action: #selector(resumeAllAction), keyEquivalent: "")
@@ -81,9 +81,9 @@ final class StatusItemController: NSObject {
 
         menu.addItem(stats)
         menu.addItem(counts)
-        menu.addItem(connection)
         menu.addItem(.separator())
         menu.addItem(open)
+        menu.addItem(connection)
         menu.addItem(pause)
         menu.addItem(resume)
         menu.addItem(settings)
@@ -151,17 +151,14 @@ final class StatusItemController: NSObject {
             countsItem?.title =
                 "\(stats.downloading) downloading · \(stats.seeding) seeding · \(percent)% complete"
         }
-        if model.isRealBackend {
-            let version = ConnectionSettings.shared.lastVersion.map { "qBittorrent \($0)" }
-            connectionItem?.title = version ?? "Connected"
-        } else {
-            connectionItem?.title = "Not connected"
-        }
         pauseItem?.isEnabled = model.canPauseAll
         resumeItem?.isEnabled = model.canResumeAll
+        connectionItem?.title = model.isConnected
+            ? "Connected — qBittorrent \(model.connectionState.version ?? "")"
+            : "Connection…"
         // macOS 26 can hide the item at the system level ("Allow in Menu
         // Bar" toggle) while the app setting stays on — pick that up on
-        // the next tick so tiers follow actual visibility.
+        // the next tick so polling cadence follows actual visibility.
         if AppSettings.shared.showMenuBarItem, !statusItem.isVisible {
             model.recomputeSyncTier()
         }
@@ -174,6 +171,11 @@ final class StatusItemController: NSObject {
         } else {
             writeProbeLog("[menubar] main action unavailable")
         }
+    }
+
+    @objc private func openConnectionAction() {
+        NSApp.activate()
+        model?.showConnectionSheet = true
     }
 
     @objc private func openSettingsAction() {
