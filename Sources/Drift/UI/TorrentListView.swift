@@ -11,166 +11,10 @@ struct TorrentListView: View {
             sortOrder: $model.sortOrder,
             columnCustomization: $model.columnCustomization
         ) {
-            TableColumn("Name", value: \TorrentSummary.name) { torrent in
-                HStack(spacing: DesignSystem.Spacing.sm) {
-                    Image(systemName: torrent.status.systemImage)
-                        .foregroundStyle(torrent.status.tint)
-                    Text(torrent.name)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .tableCell(.leading, model, torrent)
-            }
-            .width(min: 220, ideal: 320)
+            baseColumns(model)
 
-            TableColumn("Status", value: \TorrentSummary.status) { torrent in
-                Text(torrent.status.label)
-                    .foregroundStyle(torrent.status.tint)
-                    .tableCell(.leading, model, torrent)
-            }
-            .width(110)
-            .customizationID("status")
-
-            TableColumn("Progress", value: \TorrentSummary.progress) { torrent in
-                HStack(spacing: DesignSystem.Spacing.sm) {
-                    ProgressView(value: torrent.progress)
-                        .progressViewStyle(.linear)
-                        .tint(torrent.status.tint)
-                    Text(DesignSystem.Format.percent(torrent.progress))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                }
-                .tableCell(.leading, model, torrent)
-            }
-            .width(150)
-            .customizationID("progress")
-
-            TableColumn("Size", value: \TorrentSummary.size) { torrent in
-                Text(DesignSystem.Format.size(torrent.size))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(84)
-            .customizationID("size")
-
-            TableColumn("DL", value: \TorrentSummary.downloadSpeed) { torrent in
-                Text(DesignSystem.Format.speed(torrent.downloadSpeed))
-                    .monospacedDigit()
-                    .foregroundStyle(torrent.downloadSpeed > 0 ? DesignSystem.Palette.downloading : .secondary)
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(80)
-            .customizationID("downloadSpeed")
-
-            TableColumn("UP", value: \TorrentSummary.uploadSpeed) { torrent in
-                Text(DesignSystem.Format.speed(torrent.uploadSpeed))
-                    .monospacedDigit()
-                    .foregroundStyle(torrent.uploadSpeed > 0 ? DesignSystem.Palette.seeding : .secondary)
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(80)
-            .customizationID("uploadSpeed")
-
-            TableColumn("ETA", value: \TorrentSummary.etaSortKey) { torrent in
-                Text(DesignSystem.Format.eta(torrent.eta))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(80)
-            .customizationID("eta")
-
-            TableColumn("Time", value: \TorrentSummary.timeActive) { torrent in
-                Text(DesignSystem.Format.duration(torrent.timeActive))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(80)
-            .customizationID("timeActive")
-
-            TableColumn("Category", value: \TorrentSummary.category) { torrent in
-                Text(torrent.category ?? "—")
-                    .tableCell(.leading, model, torrent)
-            }
-            .width(100)
-            .customizationID("category")
-
-            TableColumn("Tags") { torrent in
-                Text(torrent.tags.isEmpty ? "—" : torrent.tags.joined(separator: ", "))
-                    .tableCell(.leading, model, torrent)
-            }
-            .width(100)
-            .customizationID("tags")
-
-            TableColumn("Ratio", value: \TorrentSummary.ratio) { torrent in
-                Text(String(format: "%.2f", torrent.ratio))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(70)
-            .customizationID("ratio")
-
-            TableColumn("Added", value: \TorrentSummary.addedOn) { torrent in
-                Text(torrent.addedOn > 0
-                    ? Date(timeIntervalSince1970: torrent.addedOn).formatted(.abbreviatedDate)
-                    : "—")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(110)
-            .customizationID("addedOn")
-
-            TableColumn("Seeds", value: \TorrentSummary.seeds) { torrent in
-                Text("\(torrent.seeds)")
-                    .monospacedDigit()
-                    .foregroundStyle(torrent.seeds > 0 ? DesignSystem.Palette.seeding : .secondary)
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(60)
-            .customizationID("seeds")
-
-            TableColumn("Peers", value: \TorrentSummary.peers) { torrent in
-                Text("\(torrent.peers)")
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(60)
-            .customizationID("peers")
-
-            TableColumn("Avail.", value: \TorrentSummary.availability) { torrent in
-                Text(torrent.progress >= 1 ? "∞" : String(format: "%.2f", torrent.availability))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(70)
-            .customizationID("availability")
-
-            TableColumn("Downloaded", value: \TorrentSummary.downloaded) { torrent in
-                Text(DesignSystem.Format.size(torrent.downloaded))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(100)
-            .customizationID("downloaded")
-
-            TableColumn("Uploaded", value: \TorrentSummary.uploaded) { torrent in
-                Text(DesignSystem.Format.size(torrent.uploaded))
-                    .monospacedDigit()
-                    .tableCell(.trailing, model, torrent)
-            }
-            .width(100)
-            .customizationID("uploaded")
-
-            TableColumn("Save Path", value: \TorrentSummary.savePath) { torrent in
-                Text(torrent.savePath.isEmpty ? "—" : torrent.savePath)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .tableCell(.leading, model, torrent)
-            }
-            .width(140)
-            .customizationID("savePath")
+            midColumns(model)
+            tailColumns(model)
         }
         .tableStyle(.inset)
         // Selection clicks trigger a SwiftUI re-render of the table whose
@@ -314,6 +158,304 @@ private extension View {
                 TorrentRowMenu(model: model, torrent: torrent)
             }
     }
+}
+
+@TableColumnBuilder<TorrentSummary, KeyPathComparator<TorrentSummary>>
+@MainActor private func midColumns(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    timeColumn(model)
+    categoryColumn(model)
+    tagsColumn(model)
+    ratioColumn(model)
+    addedColumn(model)
+    seedsColumn(model)
+}
+
+@TableColumnBuilder<TorrentSummary, KeyPathComparator<TorrentSummary>>
+@MainActor private func tailColumns(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    peersColumn(model)
+    availabilityColumn(model)
+    downloadedColumn(model)
+    uploadedColumn(model)
+    savePathColumn(model)
+}
+
+// Extraction keeps the Table's column closure small enough to type-check.
+@TableColumnBuilder<TorrentSummary, KeyPathComparator<TorrentSummary>>
+@MainActor private func baseColumns(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn("Name", sortUsing: KeyPathComparator(\TorrentSummary.name)) { torrent in
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: torrent.status.systemImage)
+                .foregroundStyle(torrent.status.tint)
+            Text(torrent.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .tableCell(.leading, model, torrent)
+    }
+    .width(min: 220, ideal: 320)
+
+    TableColumn("Status", sortUsing: KeyPathComparator(\TorrentSummary.status)) { torrent in
+        Text(torrent.status.label)
+            .foregroundStyle(torrent.status.tint)
+            .tableCell(.leading, model, torrent)
+    }
+    .width(110)
+    .customizationID("status")
+
+    TableColumn("Progress", sortUsing: KeyPathComparator(\TorrentSummary.progress)) { torrent in
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            ProgressView(value: torrent.progress)
+                .progressViewStyle(.linear)
+                .tint(torrent.status.tint)
+            Text(DesignSystem.Format.percent(torrent.progress))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        .tableCell(.leading, model, torrent)
+    }
+    .width(150)
+    .customizationID("progress")
+
+    TableColumn("Size", sortUsing: KeyPathComparator(\TorrentSummary.size)) { torrent in
+        Text(DesignSystem.Format.size(torrent.size))
+            .monospacedDigit()
+            .tableCell(.trailing, model, torrent)
+    }
+    .width(84)
+    .customizationID("size")
+
+    TableColumn("DL", sortUsing: KeyPathComparator(\TorrentSummary.downloadSpeed)) { torrent in
+        Text(DesignSystem.Format.speed(torrent.downloadSpeed))
+            .monospacedDigit()
+            .foregroundStyle(torrent.downloadSpeed > 0 ? DesignSystem.Palette.downloading : .secondary)
+            .tableCell(.trailing, model, torrent)
+    }
+    .width(80)
+    .customizationID("downloadSpeed")
+
+    TableColumn("UP", sortUsing: KeyPathComparator(\TorrentSummary.uploadSpeed)) { torrent in
+        Text(DesignSystem.Format.speed(torrent.uploadSpeed))
+            .monospacedDigit()
+            .foregroundStyle(torrent.uploadSpeed > 0 ? DesignSystem.Palette.seeding : .secondary)
+            .tableCell(.trailing, model, torrent)
+    }
+    .width(80)
+    .customizationID("uploadSpeed")
+
+    TableColumn("ETA", sortUsing: KeyPathComparator(\TorrentSummary.etaSortKey)) { torrent in
+        Text(DesignSystem.Format.eta(torrent.eta))
+            .monospacedDigit()
+            .tableCell(.trailing, model, torrent)
+    }
+    .width(80)
+    .customizationID("eta")
+}
+
+// Extraction keeps the Table's column closure small enough to type-check.
+// Secondary columns share one concrete cell view so the helper functions can
+// name TableColumn's four generics directly.
+private struct TorrentCellView: View {
+    let torrent: TorrentSummary
+    let model: ListViewModel
+    let alignment: HorizontalAlignment
+    let text: Text
+    var truncates = false
+    var tint: Color?
+
+    var body: some View {
+        text
+            .monospacedDigit()
+            .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.primary))
+            .lineLimit(1)
+            .truncationMode(truncates ? .middle : .tail)
+            .padding(.horizontal, DesignSystem.Metrics.tableCellHPad)
+            .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+            .frame(height: DesignSystem.Metrics.tableCellHeight)
+            .padding(.vertical, DesignSystem.Metrics.tableCellVPad)
+            .contextMenu {
+                TorrentRowMenu(model: model, torrent: torrent)
+            }
+    }
+}
+
+@MainActor private func timeColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Time",
+        sortUsing: KeyPathComparator(\TorrentSummary.timeActive)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(DesignSystem.Format.duration(torrent.timeActive)),
+            tint: .secondary
+        )
+    }
+    .width(80)
+    .customizationID("timeActive")
+}
+
+@MainActor private func categoryColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Category",
+        sortUsing: KeyPathComparator(\TorrentSummary.categorySortKey)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .leading,
+            text: Text(torrent.category ?? "—")
+        )
+    }
+    .width(100)
+    .customizationID("category")
+}
+
+@MainActor private func tagsColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Tags",
+        sortUsing: KeyPathComparator(\TorrentSummary.tagsSortKey)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .leading,
+            text: Text(torrent.tags.isEmpty ? "—" : torrent.tags.joined(separator: ", "))
+        )
+    }
+    .width(100)
+    .customizationID("tags")
+}
+
+@MainActor private func ratioColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Ratio",
+        sortUsing: KeyPathComparator(\TorrentSummary.ratio)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(String(format: "%.2f", torrent.ratio))
+        )
+    }
+    .width(70)
+    .customizationID("ratio")
+}
+
+@MainActor private func addedColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Added",
+        sortUsing: KeyPathComparator(\TorrentSummary.addedOn)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(addedDisplay(torrent)),
+            tint: .secondary
+        )
+    }
+    .width(110)
+    .customizationID("addedOn")
+}
+
+@MainActor private func addedDisplay(_ torrent: TorrentSummary) -> String {
+    guard torrent.addedOn > 0 else { return "—" }
+    return Date(timeIntervalSince1970: torrent.addedOn).formatted(
+        date: .abbreviated, time: .omitted
+    )
+}
+
+@MainActor private func seedsColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Seeds",
+        sortUsing: KeyPathComparator(\TorrentSummary.seeds)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text("\(torrent.seeds)"),
+            tint: torrent.seeds > 0 ? DesignSystem.Palette.seeding : .secondary
+        )
+    }
+    .width(60)
+    .customizationID("seeds")
+}
+
+@MainActor private func peersColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Peers",
+        sortUsing: KeyPathComparator(\TorrentSummary.peers)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text("\(torrent.peers)")
+        )
+    }
+    .width(60)
+    .customizationID("peers")
+}
+
+@MainActor private func availabilityColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Avail.",
+        sortUsing: KeyPathComparator(\TorrentSummary.availability)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(torrent.progress >= 1 ? "∞" : String(format: "%.2f", torrent.availability))
+        )
+    }
+    .width(70)
+    .customizationID("availability")
+}
+
+@MainActor private func downloadedColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Downloaded",
+        sortUsing: KeyPathComparator(\TorrentSummary.downloaded)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(DesignSystem.Format.size(torrent.downloaded))
+        )
+    }
+    .width(100)
+    .customizationID("downloaded")
+}
+
+@MainActor private func uploadedColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Uploaded",
+        sortUsing: KeyPathComparator(\TorrentSummary.uploaded)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .trailing,
+            text: Text(DesignSystem.Format.size(torrent.uploaded))
+        )
+    }
+    .width(100)
+    .customizationID("uploaded")
+}
+
+@MainActor private func savePathColumn(_ model: ListViewModel)
+    -> some TableColumnContent<TorrentSummary, KeyPathComparator<TorrentSummary>> {
+    TableColumn(
+        "Save Path",
+        sortUsing: KeyPathComparator(\TorrentSummary.savePath)
+    ) { torrent in
+        TorrentCellView(
+            torrent: torrent, model: model, alignment: .leading,
+            text: Text(torrent.savePath.isEmpty ? "—" : torrent.savePath),
+            truncates: true
+        )
+    }
+    .width(140)
+    .customizationID("savePath")
 }
 
 private struct TorrentRowMenu: View {

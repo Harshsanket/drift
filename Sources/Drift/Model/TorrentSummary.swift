@@ -29,6 +29,8 @@ struct TorrentSummary: Identifiable, Equatable {
     var autoManaged: Bool = true
 
     var etaSortKey: TimeInterval { eta ?? .infinity }
+    var categorySortKey: String { category ?? "" }
+    var tagsSortKey: String { tags.joined(separator: ", ") }
 }
 
 enum TorrentStatus: String, CaseIterable, Hashable, Comparable {
