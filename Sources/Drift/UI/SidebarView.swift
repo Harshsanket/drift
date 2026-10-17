@@ -13,7 +13,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $model.statusFilter) {
             Section("Status") {
-                ForEach(StatusFilter.allCases) { filter in
+                ForEach(StatusFilter.sidebarCases) { filter in
                     Label {
                         HStack {
                             Text(filter.label)

@@ -16,6 +16,13 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Rows the sidebar renders. Checking/moving are excluded: they are
+    /// in-progress states no torrent rests in, so they surface as live chips
+    /// in the status bar instead of permanently reserved filter rows.
+    static var sidebarCases: [StatusFilter] {
+        allCases.filter { $0 != .checking && $0 != .moving }
+    }
+
     var label: String {
         switch self {
         case .all: "All"

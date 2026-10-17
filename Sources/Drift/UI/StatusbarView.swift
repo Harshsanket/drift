@@ -22,6 +22,15 @@ struct StatusbarView: View {
                         .monospacedDigit()
                         .help("Free space on the server")
                 }
+                // In-progress states (checking/moving) appear as live chips
+                // only while they exist — no one rests in them, so they don't
+                // merit permanent sidebar rows.
+                if model.isConnected, model.count(for: .checking) > 0 {
+                    statusChip(.checking)
+                }
+                if model.isConnected, model.count(for: .moving) > 0 {
+                    statusChip(.moving)
+                }
             }
 
             Spacer(minLength: DesignSystem.Spacing.md)
@@ -63,6 +72,17 @@ struct StatusbarView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
         }
+    }
+
+    @ViewBuilder
+    private func statusChip(_ status: TorrentStatus) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.systemImage)
+            Text("\(status.label) \(model.count(for: StatusFilter(rawValue: status.rawValue) ?? .all))")
+        }
+        .foregroundStyle(status.tint)
+        .monospacedDigit()
+        .help("\(status.label) torrents on the server — informational only")
     }
 
     private func speed(systemImage: String, value: Int64, tint: Color) -> some View {
