@@ -27,6 +27,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     private var rawTorrents: [String: [String: Any]] = [:]
     private var serverState: [String: Any] = [:]
+    private var cachedCategories: [TorrentCategory] = []
+    private var cachedTags: [String] = []
+    private var organizerTask: Task<Void, Never>?
     private var lastRid = 0
     private var syncTask: Task<Void, Never>?
     private var consecutiveFailures = 0
@@ -139,6 +142,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         lock.withLock {
             if syncGeneration == generation { syncTask = task }
         }
+        prefetchOrganizers()
     }
 
     func stopSync() {
@@ -696,8 +700,90 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             do {
                 try await postForm(path: path, items: items)
                 try? await syncOnce()
+                prefetchOrganizers()
             } catch {
                 writeProbeLog("[engine] \(path) failed: \(describe(error))")
+            }
+        }
+    }
+
+    // MARK: A2 categories & tags
+
+    func categories() -> [TorrentCategory] {
+        lock.withLock { cachedCategories }
+    }
+
+    func tags() -> [String] {
+        lock.withLock { cachedTags }
+    }
+
+    func createCategory(name: String, savePath: String?) {
+        var items = [("name", name)]
+        if let savePath, !savePath.isEmpty { items.append(("savePath", savePath)) }
+        postAction("torrents/createCategory", items)
+    }
+
+    func editCategory(name: String, savePath: String?) {
+        var items = [("name", name)]
+        if let savePath, !savePath.isEmpty { items.append(("savePath", savePath)) }
+        postAction("torrents/editCategory", items)
+    }
+
+    func removeCategories(names: [String]) {
+        postAction("torrents/removeCategories", [("categories", names.joined(separator: "\n"))])
+    }
+
+    func setCategory(ids: [String], category: String?) {
+        postAction("torrents/setCategory", [
+            ("hashes", Self.hashParam(ids)),
+            ("category", category ?? "")
+        ])
+    }
+
+    func createTags(_ names: [String]) {
+        postAction("torrents/createTags", [("tags", names.joined(separator: ","))])
+    }
+
+    func deleteTags(_ names: [String]) {
+        postAction("torrents/deleteTags", [("tags", names.joined(separator: ","))])
+    }
+
+    func addTags(ids: [String], tags: [String]) {
+        postAction("torrents/addTags", [("hashes", Self.hashParam(ids)), ("tags", tags.joined(separator: ","))])
+    }
+
+    func removeTags(ids: [String], tags: [String]) {
+        postAction("torrents/removeTags", [("hashes", Self.hashParam(ids)), ("tags", tags.joined(separator: ","))])
+    }
+
+    /// Categories/tags are not part of the sync delta, so they are fetched
+    /// (at connect and after every mutation) into a small cache the sync
+    /// surface reads.
+    private func prefetchOrganizers() {
+        organizerTask?.cancel()
+        organizerTask = Task {
+            do {
+                let categoriesData = try await fetchData(path: "torrents/categories", query: [])
+                let tagsData = try await fetchData(path: "torrents/tags", query: [])
+                let categoryMap = (try? JSONSerialization.jsonObject(with: categoriesData))
+                    as? [String: [String: Any]] ?? [:]
+                let categories = categoryMap
+                    .map { name, fields in
+                        TorrentCategory(name: name, savePath: (fields["savePath"] as? String) ?? "")
+                    }
+                    .sorted { $0.name < $1.name }
+                let tags = ((try? JSONSerialization.jsonObject(with: tagsData)) as? [String])?
+                    .sorted() ?? []
+                guard !Task.isCancelled else { return }
+                lock.withLock {
+                    cachedCategories = categories
+                    cachedTags = tags
+                }
+                if let onUpdate {
+                    Task { @MainActor in onUpdate() }
+                }
+            } catch {
+                writeProbeLog("[engine] organizers fetch failed: \(describe(error))")
             }
         }
     }

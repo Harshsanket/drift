@@ -50,6 +50,11 @@ enum StatusFilter: String, CaseIterable, Hashable, Identifiable {
     }
 }
 
+enum CategoryFilter: Hashable {
+    case uncategorized
+    case named(String)
+}
+
 /// The live connection state to the qBittorrent Web UI. Drift holds no torrent
 /// data of its own: with no connection there is nothing to show and nothing to
 /// act on.
@@ -99,6 +104,11 @@ final class ListViewModel {
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
     var statusFilter: StatusFilter = .all
+    private(set) var categories: [TorrentCategory] = []
+    private(set) var tags: [String] = []
+    private(set) var activeCategory: CategoryFilter?
+    private(set) var activeTags: Set<String> = []
+    private var lastOrganizersFetch = Date.distantPast
     var searchText = ""
     var detailsCollapsed = true
     /// 0 = details panel fully hidden, 1 = fully revealed. Driven frame by
@@ -331,9 +341,24 @@ final class ListViewModel {
         torrents
             .filter { torrent in
                 statusFilter.matches(torrent)
-                    && (searchText.isEmpty || torrent.name.localizedCaseInsensitiveContains(searchText))
+                    && matchesCategory(torrent)
+                    && matchesTags(torrent)
+                    && (searchText.isEmpty
+                        || torrent.name.localizedCaseInsensitiveContains(searchText))
             }
             .sorted(using: sortOrder)
+    }
+
+    private func matchesCategory(_ torrent: TorrentSummary) -> Bool {
+        switch activeCategory {
+        case nil: true
+        case .uncategorized: torrent.category == nil
+        case .named(let name): torrent.category == name
+        }
+    }
+
+    private func matchesTags(_ torrent: TorrentSummary) -> Bool {
+        activeTags.isEmpty || !Set(torrent.tags).isDisjoint(with: activeTags)
     }
 
     var selectedTorrent: TorrentSummary? {
@@ -445,8 +470,83 @@ final class ListViewModel {
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
+        reloadOrganizers()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
+    }
+
+    // MARK: - Categories & tags (A2)
+
+    /// Categories/tags ride outside the sync delta: the engine caches them at
+    /// connect and after mutations, and the model reads the cache when it has
+    /// aged past 5 seconds.
+    private func reloadOrganizers(force: Bool = false) {
+        guard let engine, isConnected else { return }
+        guard force || Date().timeIntervalSince(lastOrganizersFetch) > 5 else { return }
+        lastOrganizersFetch = Date()
+        Task {
+            categories = engine.categories()
+            tags = engine.tags()
+        }
+    }
+
+    func toggleCategoryFilter(_ filter: CategoryFilter) {
+        activeCategory = (activeCategory == filter) ? nil : filter
+        writeProbeLog("[model] category filter -> \(String(describing: activeCategory))")
+    }
+
+    func toggleTagFilter(_ tag: String) {
+        if activeTags.contains(tag) {
+            activeTags.remove(tag)
+        } else {
+            activeTags.insert(tag)
+        }
+        writeProbeLog("[model] tag filter -> \(activeTags.sorted().joined(separator: "|"))")
+    }
+
+    func createOrganizer(dialog: ListDialog) {
+        pendingText = ""
+        pendingText2 = ""
+        activeDialog = dialog
+        writeProbeLog("[engine] organizer dialog \(String(describing: dialog))")
+    }
+
+    func setTorrentCategory(_ ids: [String], category: String?) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.setCategory(ids: ids, category: category)
+        refresh()
+        reloadOrganizers(force: true)
+        writeProbeLog("[engine] setCategory ids=\(ids.count) category=\(category ?? "none")")
+    }
+
+    func assignTag(_ ids: [String], tag: String) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        if let torrent = torrents.first(where: { $0.id == ids.first ?? "" }),
+           torrent.tags.contains(tag) {
+            engine.removeTags(ids: ids, tags: [tag])
+            writeProbeLog("[engine] removeTag ids=\(ids.count) tag=\(tag)")
+        } else {
+            engine.addTags(ids: ids, tags: [tag])
+            writeProbeLog("[engine] addTag ids=\(ids.count) tag=\(tag)")
+        }
+        refresh()
+    }
+
+    func removeOrganizers(categoriesNames: [String] = [], tagNames: [String] = []) {
+        guard let engine, isConnected else { return }
+        if !categoriesNames.isEmpty {
+            engine.removeCategories(names: categoriesNames)
+            if activeCategory == .named(categoriesNames[0]) {
+                activeCategory = nil
+            }
+        }
+        if !tagNames.isEmpty {
+            engine.deleteTags(tagNames)
+            activeTags.subtract(tagNames)
+        }
+        refresh()
+        reloadOrganizers(force: true)
+        writeProbeLog("[engine] removeOrganizers categories=\(categoriesNames.count) tags=\(tagNames.count)")
     }
 
     func setWindowVisible(_ visible: Bool) {
@@ -581,10 +681,14 @@ final class ListViewModel {
     enum ListDialog: Equatable {
         case rename(id: String)
         case setLocation
+        case createCategory
+        case editCategory(name: String)
+        case newTag
     }
 
     var activeDialog: ListDialog?
     var pendingText = ""
+    var pendingText2 = ""
 
     func requestRename(_ id: String) {
         guard let torrent = torrents.first(where: { $0.id == id }) else { return }
@@ -613,6 +717,7 @@ final class ListViewModel {
             return
         }
         let text = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = pendingText2.trimmingCharacters(in: .whitespacesAndNewlines)
         switch dialog {
         case .rename(let id):
             guard !text.isEmpty else { cancelDialog(); return }
@@ -623,8 +728,20 @@ final class ListViewModel {
             guard !text.isEmpty, !ids.isEmpty else { cancelDialog(); return }
             engine.setLocation(ids: ids, location: text)
             writeProbeLog("[engine] setLocation ids=\(ids.count) location=\(text)")
+        case .createCategory:
+            guard !text.isEmpty else { cancelDialog(); return }
+            engine.createCategory(name: text, savePath: path.isEmpty ? nil : path)
+            writeProbeLog("[engine] createCategory name=\(text) path=\(path)")
+        case .editCategory(let name):
+            engine.editCategory(name: name, savePath: path.isEmpty ? nil : path)
+            writeProbeLog("[engine] editCategory name=\(name) path=\(path)")
+        case .newTag:
+            guard !text.isEmpty else { cancelDialog(); return }
+            engine.createTags([text])
+            writeProbeLog("[engine] createTag tag=\(text)")
         }
         activeDialog = nil
+        reloadOrganizers(force: true)
         refresh()
     }
 

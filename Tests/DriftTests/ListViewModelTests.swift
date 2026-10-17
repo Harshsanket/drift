@@ -188,4 +188,32 @@ struct ListViewModelTests {
         #expect(model.canPauseAll)
         #expect(!model.canResumeAll)
     }
+
+    @Test func categoryFilterToggleAndApply() {
+        let model = connectedModel()
+        model.toggleCategoryFilter(.named("linux"))
+        #expect(model.filtered.isEmpty) // stub torrents are uncategorized
+        model.toggleCategoryFilter(.named("linux"))
+        #expect(model.filtered.count == model.torrents.count)
+        model.toggleCategoryFilter(.uncategorized)
+        #expect(model.filtered.count == model.torrents.count)
+        secondToggleOnlyClears(model)
+        #expect(model.filtered.count == model.torrents.count)
+    }
+
+    private func secondToggleOnlyClears(_ model: ListViewModel) {
+        model.toggleCategoryFilter(.uncategorized)
+    }
+
+    @Test func tagFilterToggleAndApply() {
+        let model = connectedModel()
+        model.toggleTagFilter("iso")
+        #expect(model.filtered.isEmpty)
+        model.toggleTagFilter("iso")
+        #expect(model.activeTags.isEmpty)
+        #expect(model.filtered.count == model.torrents.count)
+        model.toggleTagFilter("iso")
+        model.toggleTagFilter("cloud")
+        #expect(model.activeTags == ["iso", "cloud"])
+    }
 }

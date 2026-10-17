@@ -165,7 +165,13 @@ struct TorrentListView: View {
                 set: { if !$0 { model.cancelDialog() } }
             )
         ) {
-            TextField(dialogPrompt, text: $model.pendingText)
+            switch model.activeDialog {
+            case .createCategory, .editCategory:
+                TextField("Category", text: $model.pendingText)
+                TextField("Save path (optional)", text: $model.pendingText2)
+            default:
+                TextField(dialogPrompt, text: $model.pendingText)
+            }
             Button("OK") {
                 model.confirmDialog()
             }
@@ -179,6 +185,9 @@ struct TorrentListView: View {
         switch model.activeDialog {
         case .rename: "Rename Torrent"
         case .setLocation: "Set Save Location"
+        case .createCategory: "New Category"
+        case .editCategory(let name): "Edit Category — \(name)"
+        case .newTag: "New Tag"
         case nil: ""
         }
     }
@@ -187,6 +196,9 @@ struct TorrentListView: View {
         switch model.activeDialog {
         case .rename: "Name"
         case .setLocation: "Location"
+        case .createCategory: "Category"
+        case .editCategory: "Save path (optional)"
+        case .newTag: "Tag"
         case nil: ""
         }
     }
@@ -344,6 +356,74 @@ private struct TorrentRowMenu: View {
             set: { model.setTorrentAutoManagement(targets, enabled: $0) }
         )) {
             Label("Automatic Torrent Management", systemImage: "automatic")
+        }
+
+        Divider()
+
+        Menu {
+            if model.categories.isEmpty {
+                Text("No categories")
+            }
+            ForEach(model.categories) { category in
+                Button {
+                    model.setTorrentCategory(targets, category: category.name)
+                } label: {
+                    if torrent.category == category.name {
+                        Label("\(category.name)", systemImage: "checkmark")
+                    } else {
+                        Text(category.name)
+                    }
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                model.setTorrentCategory(targets, category: nil)
+            } label: {
+                Label("Uncategorized", systemImage: "minus.circle")
+            }
+            if torrent.category != nil {
+                Button {
+                    model.setTorrentCategory(targets, category: nil)
+                } label: {
+                    Label("Clear", systemImage: "xmark.circle")
+                }
+            }
+            Divider()
+            Button {
+                model.createOrganizer(dialog: .createCategory)
+            } label: {
+                Label("New Category…", systemImage: "plus")
+            }
+            .disabled(!model.isConnected)
+        } label: {
+            Label(torrent.category ?? "Category", systemImage: "folder.badge.gearshape")
+        }
+        .disabled(!model.isConnected)
+
+        Menu {
+            if model.tags.isEmpty {
+                Text("No tags")
+            }
+            ForEach(model.tags, id: \.self) { tag in
+                Button {
+                    model.assignTag(targets, tag: tag)
+                } label: {
+                    if torrent.tags.contains(tag) {
+                        Label("\(tag)", systemImage: "checkmark")
+                    } else {
+                        Text(tag)
+                    }
+                }
+            }
+            Divider()
+            Button {
+                model.createOrganizer(dialog: .newTag)
+            } label: {
+                Label("New Tag…", systemImage: "plus")
+            }
+            .disabled(!model.isConnected)
+        } label: {
+            Label(torrent.tags.isEmpty ? "Tags" : torrent.tags.joined(separator: ", "), systemImage: "tag")
         }
 
         Divider()
