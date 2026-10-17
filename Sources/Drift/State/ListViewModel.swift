@@ -552,6 +552,54 @@ final class ListViewModel {
         writeProbeLog("[engine] removeOrganizers categories=\(categoriesNames.count) tags=\(tagNames.count)")
     }
 
+    // MARK: - Details management (A4)
+
+    private func detailsAction(_ label: String, run: (any TorrentEngine, String) -> Void) {
+        guard let engine, isConnected, let id = selectedIDs.first else { return }
+        run(engine, id)
+        refresh()
+        scheduleDetailsFetch(for: id)
+        writeProbeLog("[details] \(label) id=\(id.prefix(12))")
+    }
+
+    func requestAddTracker() {
+        pendingText = ""
+        activeDialog = .addTracker
+    }
+
+    func requestEditTracker(_ url: String) {
+        pendingText = url
+        activeDialog = .editTracker(url: url)
+    }
+
+    func removeTrackers(_ urls: [String]) {
+        detailsAction("removeTrackers") { engine, id in
+            engine.removeTrackers(id: id, urls: urls)
+        }
+    }
+
+    func reannounceTrackers() {
+        detailsAction("reannounce") { engine, id in
+            engine.reannounceTrackers(id: id)
+        }
+    }
+
+    func requestAddWebSeed() {
+        pendingText = ""
+        activeDialog = .addWebSeed
+    }
+
+    func requestEditWebSeed(_ url: String) {
+        pendingText = url
+        activeDialog = .editWebSeed(url: url)
+    }
+
+    func removeWebSeeds(_ urls: [String]) {
+        detailsAction("removeWebSeeds") { engine, id in
+            engine.removeWebSeeds(id: id, urls: urls)
+        }
+    }
+
     func setWindowVisible(_ visible: Bool) {
         guard visible != windowVisible else { return }
         windowVisible = visible
@@ -694,6 +742,10 @@ final class ListViewModel {
         case createCategory
         case editCategory(name: String)
         case newTag
+        case addTracker
+        case editTracker(url: String)
+        case addWebSeed
+        case editWebSeed(url: String)
     }
 
     var activeDialog: ListDialog?
@@ -749,10 +801,31 @@ final class ListViewModel {
             guard !text.isEmpty else { cancelDialog(); return }
             engine.createTags([text])
             writeProbeLog("[engine] createTag tag=\(text)")
+        case .addTracker:
+            let urls = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+            guard !urls.isEmpty else { cancelDialog(); return }
+            engine.addTrackers(id: selectedIDs.first ?? "", urls: urls)
+            writeProbeLog("[details] addTracker urls=\(urls.count)")
+        case .editTracker(let original):
+            guard !text.isEmpty, !selectedIDs.isEmpty else { cancelDialog(); return }
+            engine.editTracker(id: selectedIDs.first ?? "", oldURL: original, newURL: text)
+            writeProbeLog("[details] editTracker")
+        case .addWebSeed:
+            let urls = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+            guard !urls.isEmpty else { cancelDialog(); return }
+            engine.addWebSeeds(id: selectedIDs.first ?? "", urls: urls)
+            writeProbeLog("[details] addWebSeed urls=\(urls.count)")
+        case .editWebSeed(let original):
+            guard !text.isEmpty, !selectedIDs.isEmpty else { cancelDialog(); return }
+            engine.editWebSeed(id: selectedIDs.first ?? "", oldURL: original, newURL: text)
+            writeProbeLog("[details] editWebSeed")
         }
         activeDialog = nil
         reloadOrganizers(force: true)
         refresh()
+        if selectedIDs.first != nil {
+            scheduleDetailsFetch(for: selectedIDs.first!)
+        }
     }
 
     var canPauseAll: Bool {

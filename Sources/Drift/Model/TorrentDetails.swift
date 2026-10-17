@@ -38,6 +38,10 @@ struct GeneralInfo: Equatable {
     var uploaded: Int64
     var piecesTotal: Int
     var piecesHave: Int
+    var wasted: Int64 = 0
+    var connections: Int = 0
+    var createdBy: String = ""
+    var createdOn: Date?
 
     var shareRatio: Double {
         guard downloaded > 0 else { return 0 }

@@ -393,17 +393,40 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         async let peers = peerRows(hash: id)
         async let webSeeds = webSeedRows(hash: id)
         async let fetchedFiles = fileRows(hash: id)
+        async let enrichedGeneral = enrichedGeneral(general, hash: id)
         var files = await fetchedFiles
         if files.isEmpty {
             files = [FileRow(name: summary.name, size: summary.size, progress: summary.progress, priority: .normal)]
         }
         return TorrentDetails(
-            general: general,
+            general: await enrichedGeneral,
             trackers: await trackers,
             peers: await peers,
             webSeeds: await webSeeds,
             files: files
         )
+    }
+
+    /// Overlays /torrents/properties fields onto the sync-derived general info.
+    private func enrichedGeneral(_ general: GeneralInfo, hash: String) async -> GeneralInfo {
+        var general = general
+        do {
+            let data = try await fetchData(
+                path: "torrents/properties",
+                query: [URLQueryItem(name: "hash", value: hash)]
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return general
+            }
+            general.wasted = (json["total_wasted"] as? NSNumber)?.int64Value ?? general.wasted
+            general.connections = (json["connections"] as? NSNumber)?.intValue ?? general.connections
+            general.createdBy = (json["created_by"] as? String) ?? general.createdBy
+            let createdOn = (json["creation_date"] as? NSNumber)?.doubleValue ?? 0
+            general.createdOn = createdOn > 0 ? Date(timeIntervalSince1970: createdOn) : general.createdOn
+        } catch {
+            writeProbeLog("[details] properties failed: \(describe(error))")
+        }
+        return general
     }
 
     func setFilePriority(id: String, fileIndex: Int, priority: FilePriority) {
@@ -608,6 +631,36 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
                 writeProbeLog("[engine] real remove failed: \(describe(error))")
             }
         }
+    }
+
+    // MARK: A4 details management
+
+    func addTrackers(id: String, urls: [String]) {
+        postAction("torrents/addTrackers", [("hash", id), ("urls", urls.joined(separator: "\n"))])
+    }
+
+    func editTracker(id: String, oldURL: String, newURL: String) {
+        postAction("torrents/editTracker", [("hash", id), ("origUrl", oldURL), ("newUrl", newURL)])
+    }
+
+    func removeTrackers(id: String, urls: [String]) {
+        postAction("torrents/removeTrackers", [("hash", id), ("urls", urls.joined(separator: "\n"))])
+    }
+
+    func reannounceTrackers(id: String) {
+        postAction("torrents/reannounce", [("hash", id)])
+    }
+
+    func addWebSeeds(id: String, urls: [String]) {
+        postAction("torrents/addWebSeeds", [("hash", id), ("urls", urls.joined(separator: "\n"))])
+    }
+
+    func editWebSeed(id: String, oldURL: String, newURL: String) {
+        postAction("torrents/editWebSeed", [("hash", id), ("origUrl", oldURL), ("newUrl", newURL)])
+    }
+
+    func removeWebSeeds(id: String, urls: [String]) {
+        postAction("torrents/removeWebSeeds", [("hash", id), ("urls", urls.joined(separator: "\n"))])
     }
 
     private static func hashParam(_ ids: [String]) -> String {

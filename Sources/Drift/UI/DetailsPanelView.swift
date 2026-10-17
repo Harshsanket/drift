@@ -90,11 +90,11 @@ struct DetailsPanelView: View {
                 DetailsEmptyState(title: "No torrent selected", systemImage: "cursor.arrow")
             }
         case .trackers:
-            TrackersTabView(rows: details.trackers)
+            TrackersTabView(model: model, torrentID: model.selectedIDs.first ?? "", rows: details.trackers)
         case .peers:
             PeersTabView(rows: details.peers)
         case .sources:
-            SourcesTabView(rows: details.webSeeds)
+            SourcesTabView(model: model, torrentID: model.selectedIDs.first ?? "", rows: details.webSeeds)
         case .files:
             FilesTabView(rows: details.files) { row, priority in
                 model.setFilePriority(file: row, priority: priority)

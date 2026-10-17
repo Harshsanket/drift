@@ -51,9 +51,27 @@ struct GeneralTabView: View {
                         Text(String(format: "%.2f", general.shareRatio))
                             .monospacedDigit()
                     }
+                    row("Wasted") {
+                        Text(DesignSystem.Format.size(general.wasted))
+                            .monospacedDigit()
+                    }
+                    row("Connections") {
+                        Text("\(general.connections)")
+                            .monospacedDigit()
+                    }
                     row("Time active") {
                         Text(DesignSystem.Format.duration(torrent.timeActive))
                             .monospacedDigit()
+                    }
+                    if let createdOn = general.createdOn {
+                        row("Created on") {
+                            Text(createdOn.formatted(date: .abbreviated, time: .shortened))
+                        }
+                    }
+                    if !general.createdBy.isEmpty {
+                        row("Created by") {
+                            value(general.createdBy)
+                        }
                     }
                     if !general.comment.isEmpty {
                         row("Comment") {

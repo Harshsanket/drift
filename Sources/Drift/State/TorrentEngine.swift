@@ -51,6 +51,7 @@ extension TorrentEngine {
     func removeTrackers(id: String, urls: [String]) {}
     func reannounceTrackers(id: String) {}
     func addWebSeeds(id: String, urls: [String]) {}
+    func editWebSeed(id: String, oldURL: String, newURL: String) {}
     func removeWebSeeds(id: String, urls: [String]) {}
 }
 

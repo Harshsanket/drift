@@ -188,6 +188,8 @@ struct TorrentListView: View {
         case .createCategory: "New Category"
         case .editCategory(let name): "Edit Category — \(name)"
         case .newTag: "New Tag"
+        case .addTracker, .addWebSeed: "Add Tracker"
+        case .editTracker, .editWebSeed: "Edit Tracker"
         case nil: ""
         }
     }
@@ -199,6 +201,8 @@ struct TorrentListView: View {
         case .createCategory: "Category"
         case .editCategory: "Save path (optional)"
         case .newTag: "Tag"
+        case .addTracker, .addWebSeed: "URLs (separate multiple by spaces or lines)"
+        case .editTracker, .editWebSeed: "URL"
         case nil: ""
         }
     }
