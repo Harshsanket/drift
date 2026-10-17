@@ -474,6 +474,7 @@ final class ListViewModel {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
         reloadOrganizers()
+        reloadStatistics()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
     }
@@ -711,6 +712,47 @@ final class ListViewModel {
         pendingRemoval = nil
         refresh()
         writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    // MARK: - Global transfer controls (A6)
+
+    private(set) var statistics: ServerStatistics?
+    private(set) var altSpeedsActive = false
+    var showStatistics = false
+
+    func toggleAltSpeeds() {
+        guard let engine, isConnected else { return }
+        engine.toggleSpeedLimitsMode()
+        Task {
+            if let alternate = await engine?.speedLimitsMode() {
+                altSpeedsActive = alternate
+            }
+        }
+        writeProbeLog("[engine] toggleSpeedLimitsMode")
+    }
+
+    private func reloadStatistics() {
+        statistics = engine?.serverStatistics()
+    }
+
+    func globalDownloadLimit() async -> Int64? {
+        await engine?.globalDownloadLimit()
+    }
+
+    func globalUploadLimit() async -> Int64? {
+        await engine?.globalUploadLimit()
+    }
+
+    func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {
+        guard let engine, isConnected else { return }
+        engine.setGlobalDownloadLimit(bytesPerSecond)
+        writeProbeLog("[engine] setGlobalDownloadLimit \(bytesPerSecond)")
+    }
+
+    func setGlobalUploadLimit(_ bytesPerSecond: Int64) {
+        guard let engine, isConnected else { return }
+        engine.setGlobalUploadLimit(bytesPerSecond)
+        writeProbeLog("[engine] setGlobalUploadLimit \(bytesPerSecond)")
     }
 
     // MARK: - Lifecycle actions (A1)

@@ -663,6 +663,72 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         postAction("torrents/removeWebSeeds", [("hash", id), ("urls", urls.joined(separator: "\n"))])
     }
 
+    // MARK: A6 global transfer controls
+
+    /// Preferences store limits in KiB/s; the UI surface is bytes/s.
+    func globalDownloadLimit() async -> Int64? {
+        preferenceLimit("dl_limit")
+    }
+
+    func globalUploadLimit() async -> Int64? {
+        preferenceLimit("up_limit")
+    }
+
+    func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {
+        postAction("transfer/setDownloadLimit", [("limit", String(max(0, bytesPerSecond / 1024)))])
+    }
+
+    func setGlobalUploadLimit(_ bytesPerSecond: Int64) {
+        postAction("transfer/setUploadLimit", [("limit", String(max(0, bytesPerSecond / 1024)))])
+    }
+
+    func toggleSpeedLimitsMode() {
+        postAction("transfer/toggleSpeedLimitsMode", [])
+    }
+
+    func speedLimitsMode() async -> Bool? {
+        do {
+            let data = try await fetchData(path: "transfer/speedLimitsMode", query: [])
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+        } catch {
+            writeProbeLog("[engine] speedLimitsMode failed: \(describe(error))")
+            return nil
+        }
+    }
+
+    func serverStatistics() -> ServerStatistics? {
+        lock.lock()
+        let state = serverState
+        lock.unlock()
+        guard !state.isEmpty else { return nil }
+        let number = { (key: String) -> Int64 in
+            (state[key] as? NSNumber)?.int64Value ?? 0
+        }
+        let ratioText = (state["global_ratio"] as? String) ?? "0.00"
+        return ServerStatistics(
+            received: number("dl_info_data"),
+            sent: number("up_info_data"),
+            wasted: number("total_wasted_session"),
+            receivedAllTime: number("alltime_dl"),
+            sentAllTime: number("alltime_ul"),
+            globalRatio: Double(ratioText) ?? 0,
+            freeSpaceOnDisk: number("free_space_on_disk")
+        )
+    }
+
+    private func preferenceLimit(_ key: String) -> Int64? {
+        do {
+            let data = try await fetchData(path: "app/preferences", query: [])
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let kib = (json[key] as? NSNumber)?.int64Value
+            else { return nil }
+            return kib * 1024
+        } catch {
+            writeProbeLog("[engine] \(key) failed: \(describe(error))")
+            return nil
+        }
+    }
+
     private static func hashParam(_ ids: [String]) -> String {
         ids.sorted().joined(separator: "|")
     }

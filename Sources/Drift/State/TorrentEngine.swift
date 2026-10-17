@@ -53,6 +53,15 @@ extension TorrentEngine {
     func addWebSeeds(id: String, urls: [String]) {}
     func editWebSeed(id: String, oldURL: String, newURL: String) {}
     func removeWebSeeds(id: String, urls: [String]) {}
+
+    // Global transfer controls (A6)
+    func globalDownloadLimit() async -> Int64? { nil }
+    func globalUploadLimit() async -> Int64? { nil }
+    func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {}
+    func setGlobalUploadLimit(_ bytesPerSecond: Int64) {}
+    func toggleSpeedLimitsMode() {}
+    func speedLimitsMode() async -> Bool? { nil }
+    func serverStatistics() -> ServerStatistics? { nil }
 }
 
 enum AddSource: Sendable {

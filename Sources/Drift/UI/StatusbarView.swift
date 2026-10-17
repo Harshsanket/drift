@@ -14,11 +14,24 @@ struct StatusbarView: View {
                 Text(model.connectionState.label)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if model.isConnected,
+                   let stats = model.statistics,
+                   stats.freeSpaceOnDisk > 0 {
+                    Text(DesignSystem.Format.size(stats.freeSpaceOnDisk) + " free")
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .help("Free space on the server")
+                }
             }
 
             Spacer(minLength: DesignSystem.Spacing.md)
 
             HStack(spacing: DesignSystem.Spacing.lg) {
+                if model.altSpeedsActive {
+                    Image(systemName: "gauge.with.needle")
+                        .foregroundStyle(DesignSystem.Palette.stalled)
+                        .help("Alternative speed limits are active")
+                }
                 speed(
                     systemImage: "arrow.down",
                     value: model.globalDownloadSpeed,

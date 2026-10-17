@@ -96,6 +96,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.showConnectionSheet) {
             ConnectionSheet()
         }
+        .sheet(isPresented: $model.showStatistics) {
+            StatisticsSheet(model: model)
+        }
         .onOpenURL { url in
             if let handoff = Self.handoff(for: url) {
                 model.handleOSHandoff(handoff)

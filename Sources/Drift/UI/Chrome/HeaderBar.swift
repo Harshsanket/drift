@@ -338,7 +338,36 @@ private struct MoreOptionsMenu: View {
                 Toggle("UP", isOn: columnVisibility("uploadSpeed"))
                 Toggle("ETA", isOn: columnVisibility("eta"))
                 Toggle("Time", isOn: columnVisibility("timeActive"))
+                Toggle("Category", isOn: columnVisibility("category"))
+                Toggle("Tags", isOn: columnVisibility("tags"))
+                Toggle("Ratio", isOn: columnVisibility("ratio"))
+                Toggle("Added", isOn: columnVisibility("addedOn"))
+                Toggle("Seeds", isOn: columnVisibility("seeds"))
+                Toggle("Peers", isOn: columnVisibility("peers"))
+                Toggle("Availability", isOn: columnVisibility("availability"))
+                Toggle("Downloaded", isOn: columnVisibility("downloaded"))
+                Toggle("Uploaded", isOn: columnVisibility("uploaded"))
+                Toggle("Save Path", isOn: columnVisibility("savePath"))
             }
+
+            Divider()
+
+            Toggle(
+                "Alternative Speed Limits",
+                isOn: Binding(
+                    get: { model.altSpeedsActive },
+                    set: { _ in model.toggleAltSpeeds() }
+                )
+            )
+            .disabled(!model.isConnected)
+
+            Button {
+                model.showStatistics = true
+            } label: {
+                Label("Statistics…", systemImage: "chart.bar.doc.horizontal")
+            }
+            .help("Transfer statistics")
+            .disabled(!model.isConnected)
 
             Divider()
 
