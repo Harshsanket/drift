@@ -474,7 +474,7 @@ final class ListViewModel {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
         reloadOrganizers()
-        reloadStatistics()
+        statistics = engine?.serverStatistics()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
     }
@@ -724,7 +724,7 @@ final class ListViewModel {
         guard let engine, isConnected else { return }
         engine.toggleSpeedLimitsMode()
         Task {
-            if let alternate = await engine?.speedLimitsMode() {
+            if let alternate = await engine.speedLimitsMode() {
                 altSpeedsActive = alternate
             }
         }
@@ -733,12 +733,11 @@ final class ListViewModel {
 
     func requestStatistics() {
         showStatistics = true
-        reloadStatistics()
         writeProbeLog("[engine] statistics requested")
     }
 
     func refreshStatistics() {
-        reloadStatistics()
+        statistics = engine?.serverStatistics()
         writeProbeLog("[engine] statistics refreshed")
     }
 
