@@ -667,11 +667,11 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     /// Preferences store limits in KiB/s; the UI surface is bytes/s.
     func globalDownloadLimit() async -> Int64? {
-        preferenceLimit("dl_limit")
+        await preferenceLimit("dl_limit")
     }
 
     func globalUploadLimit() async -> Int64? {
-        preferenceLimit("up_limit")
+        await preferenceLimit("up_limit")
     }
 
     func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {
@@ -716,7 +716,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         )
     }
 
-    private func preferenceLimit(_ key: String) -> Int64? {
+    private func preferenceLimit(_ key: String) async -> Int64? {
         do {
             let data = try await fetchData(path: "app/preferences", query: [])
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],

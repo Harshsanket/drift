@@ -42,12 +42,11 @@ struct StatisticsSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack {
-                Button("Refresh") {
-                    model.statistics = nil
-                    model.refresh()
-                }
-                .disabled(!model.isConnected)
+    HStack {
+        Button("Refresh") {
+            model.refreshStatistics()
+        }
+        .disabled(!model.isConnected)
                 Spacer()
                 Button("Close") {
                     dismiss()

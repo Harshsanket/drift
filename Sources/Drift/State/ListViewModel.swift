@@ -731,8 +731,15 @@ final class ListViewModel {
         writeProbeLog("[engine] toggleSpeedLimitsMode")
     }
 
-    private func reloadStatistics() {
-        statistics = engine?.serverStatistics()
+    func requestStatistics() {
+        showStatistics = true
+        reloadStatistics()
+        writeProbeLog("[engine] statistics requested")
+    }
+
+    func refreshStatistics() {
+        reloadStatistics()
+        writeProbeLog("[engine] statistics refreshed")
     }
 
     func globalDownloadLimit() async -> Int64? {
