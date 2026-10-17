@@ -62,6 +62,9 @@ extension TorrentEngine {
     func toggleSpeedLimitsMode() {}
     func speedLimitsMode() async -> Bool? { nil }
     func serverStatistics() -> ServerStatistics? { nil }
+    func alternativeDownloadLimit() async -> Int64? { nil }
+    func alternativeUploadLimit() async -> Int64? { nil }
+    func applyPreferences(_ values: [String: Any]) {}
 }
 
 enum AddSource: Sendable {

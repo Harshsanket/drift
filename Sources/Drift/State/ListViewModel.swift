@@ -150,6 +150,16 @@ final class ListViewModel {
         ) { [weak self] _ in
             Task { @MainActor in self?.connectionSettingsChanged() }
         }
+        NotificationCenter.default.addObserver(
+            forName: .driftSpeedSettingsRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.loadSpeedSettings() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .driftSpeedSettingsSaved, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applySpeedSettings() }
+        }
         refresh()
         if engine == nil, !connectionState.isConnected {
             Task { await startConnection() }
@@ -759,6 +769,50 @@ final class ListViewModel {
         guard let engine, isConnected else { return }
         engine.setGlobalUploadLimit(bytesPerSecond)
         writeProbeLog("[engine] setGlobalUploadLimit \(bytesPerSecond)")
+    }
+
+    // MARK: - Server speed preferences (A7)
+
+    /// The Settings window reaches the engine through these handlers:
+    /// requested → snapshot of the server's speed limits; saved → patch.
+    private func loadSpeedSettings() {
+        guard let engine, isConnected else { return }
+        Task {
+            let dl = await engine.globalDownloadLimit()
+            let up = await engine.globalUploadLimit()
+            let altDl = await engine.alternativeDownloadLimit()
+            let altUp = await engine.alternativeUploadLimit()
+            let speed = SpeedSettings.shared
+            if let dl { speed.downloadLimit = max(0, dl / 1024) }
+            if let up { speed.uploadLimit = max(0, up / 1024) }
+            if let altDl { speed.altDownloadLimit = max(0, altDl / 1024) }
+            if let altUp { speed.altUploadLimit = max(0, altUp / 1024) }
+            speed.loaded = true
+            writeProbeLog(
+                "[settings] speed prefs loaded dl=\(speed.downloadLimit)"
+                    + " up=\(speed.uploadLimit)"
+                    + " altDl=\(speed.altDownloadLimit)"
+                    + " altUp=\(speed.altUploadLimit)"
+            )
+        }
+    }
+
+    private func applySpeedSettings() {
+        guard let engine, isConnected else {
+            writeProbeLog("[settings] speed prefs apply skipped (not connected)")
+            return
+        }
+        let speed = SpeedSettings.shared
+        engine.applyPreferences([
+            "dl_limit": Int(max(0, speed.downloadLimit)),
+            "up_limit": Int(max(0, speed.uploadLimit)),
+            "alt_dl_limit": Int(max(0, speed.altDownloadLimit)),
+            "alt_up_limit": Int(max(0, speed.altUploadLimit))
+        ])
+        writeProbeLog(
+            "[settings] speed prefs applied dl=\(speed.downloadLimit)"
+                + " up=\(speed.uploadLimit)"
+        )
     }
 
     // MARK: - Lifecycle actions (A1)

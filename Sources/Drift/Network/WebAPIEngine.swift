@@ -696,6 +696,21 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         }
     }
 
+    func alternativeDownloadLimit() async -> Int64? {
+        await preferenceLimit("alt_dl_limit")
+    }
+
+    func alternativeUploadLimit() async -> Int64? {
+        await preferenceLimit("alt_up_limit")
+    }
+
+    func applyPreferences(_ values: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: values),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        postAction("app/setPreferences", [("json", json)])
+    }
+
     func serverStatistics() -> ServerStatistics? {
         lock.lock()
         let state = serverState

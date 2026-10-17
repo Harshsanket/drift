@@ -4,6 +4,7 @@ import AppKit
 struct SettingsView: View {
     @Bindable private var app = AppSettings.shared
     @Bindable private var connection = ConnectionSettings.shared
+    @Bindable private var speed = SpeedSettings.shared
     @Environment(\.openWindow) private var openWindow
 
     @State private var baseUrl = ""
@@ -66,6 +67,26 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Transfer Speeds (server)") {
+                speedField("Download limit (KiB/s)", value: $speed.downloadLimit)
+                speedField("Upload limit (KiB/s)", value: $speed.uploadLimit)
+                speedField("Alternative download limit (KiB/s)", value: $speed.altDownloadLimit)
+                speedField("Alternative upload limit (KiB/s)", value: $speed.altUploadLimit)
+
+                HStack {
+                    Text("Apply writes these to the connected qBittorrent's "
+                        + "transfer settings. 0 = unlimited.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Apply to server") {
+                        NotificationCenter.default.post(name: .driftSpeedSettingsSaved, object: self)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!speed.loaded)
+                }
+            }
+
             Section("Appearance") {
                 Picker("Theme", selection: $app.appearance) {
                     ForEach(Appearance.allCases) { theme in
@@ -91,7 +112,13 @@ struct SettingsView: View {
             writeProbeLog("[settings] shown")
             WindowOpener.openSettings = { openWindow(id: "settings") }
             openWindow(id: "main")
+            NotificationCenter.default.post(name: .driftSpeedSettingsRequested, object: self)
         }
+    }
+
+    private func speedField(_ label: String, value: Binding<Int64>) -> some View {
+        TextField(label, value: value, format: .number.grouping(.never))
+            .textFieldStyle(.roundedBorder)
     }
 
     private func chooseFolder() {
