@@ -23,6 +23,10 @@ struct TorrentSummary: Identifiable, Equatable {
     var uploaded: Int64 = 0
     var savePath: String = ""
     var addedOn: TimeInterval = 0
+    var sequential: Bool = false
+    var firstLastPiecePriority: Bool = false
+    var superSeeding: Bool = false
+    var autoManaged: Bool = true
 
     var etaSortKey: TimeInterval { eta ?? .infinity }
 }

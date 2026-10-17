@@ -384,6 +384,50 @@ final class ListViewModel {
         writeProbeLog("[details] set prio file=\(file.name) -> \(priority.rawValue)")
     }
 
+    // MARK: - Per-torrent limits & toggles (A1/A6)
+
+    func setTorrentDownloadLimit(_ ids: [String], bytesPerSecond: Int64) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.setDownloadLimit(ids: ids, bytesPerSecond: bytesPerSecond)
+        refresh()
+        writeProbeLog("[engine] setDownloadLimit ids=\(ids.count) limit=\(bytesPerSecond)")
+    }
+
+    func setTorrentUploadLimit(_ ids: [String], bytesPerSecond: Int64) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.setUploadLimit(ids: ids, bytesPerSecond: bytesPerSecond)
+        refresh()
+        writeProbeLog("[engine] setUploadLimit ids=\(ids.count) limit=\(bytesPerSecond)")
+    }
+
+    func toggleSequentialDownload(_ ids: [String]) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.toggleSequentialDownload(ids: ids)
+        refresh()
+        writeProbeLog("[engine] toggleSequential ids=\(ids.count)")
+    }
+
+    func toggleFirstLastPiecePriority(_ ids: [String]) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.toggleFirstLastPiecePriority(ids: ids)
+        refresh()
+        writeProbeLog("[engine] toggleFirstLast ids=\(ids.count)")
+    }
+
+    func setSuperSeeding(_ ids: [String], enabled: Bool) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.setSuperSeeding(ids: ids, enabled: enabled)
+        refresh()
+        writeProbeLog("[engine] superSeeding \(enabled) ids=\(ids.count)")
+    }
+
+    func setTorrentAutoManagement(_ ids: [String], enabled: Bool) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.setAutoManagement(ids: ids, enabled: enabled)
+        refresh()
+        writeProbeLog("[engine] autoManagement \(enabled) ids=\(ids.count)")
+    }
+
     var globalDownloadSpeed: Int64 {
         torrents.reduce(0) { $0 + $1.downloadSpeed }
     }
@@ -509,6 +553,79 @@ final class ListViewModel {
         pendingRemoval = nil
         refresh()
         writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    // MARK: - Lifecycle actions (A1)
+
+    func forceStartTorrents(_ ids: [String]) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.forceStart(ids: ids)
+        refresh()
+        writeProbeLog("[engine] forceStart ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    func recheckTorrents(_ ids: [String]) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.recheck(ids: ids)
+        refresh()
+        writeProbeLog("[engine] recheck ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    func queueTorrents(_ ids: [String], move: QueueMove) {
+        guard !ids.isEmpty, let engine, isConnected else { return }
+        engine.queue(ids: ids, move: move)
+        refresh()
+        writeProbeLog("[engine] queue \(move.rawValue) ids=\(ids.sorted().joined(separator: ","))")
+    }
+
+    enum ListDialog: Equatable {
+        case rename(id: String)
+        case setLocation
+    }
+
+    var activeDialog: ListDialog?
+    var pendingText = ""
+
+    func requestRename(_ id: String) {
+        guard let torrent = torrents.first(where: { $0.id == id }) else { return }
+        pendingText = torrent.name
+        activeDialog = .rename(id: id)
+        writeProbeLog("[engine] rename dialog id=\(id)")
+    }
+
+    func requestSetLocation(_ ids: [String]) {
+        guard let torrent = torrents.first(where: { $0.id == ids.first ?? "" }) else { return }
+        pendingText = torrent.savePath.isEmpty
+            ? AppSettings.shared.defaultSavePath
+            : torrent.savePath
+        activeDialog = .setLocation
+        writeProbeLog("[engine] setLocation dialog n=\(ids.count)")
+    }
+
+    func cancelDialog() {
+        activeDialog = nil
+        writeProbeLog("[engine] dialog cancelled")
+    }
+
+    func confirmDialog() {
+        guard let dialog = activeDialog, let engine, isConnected else {
+            cancelDialog()
+            return
+        }
+        let text = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch dialog {
+        case .rename(let id):
+            guard !text.isEmpty else { cancelDialog(); return }
+            engine.rename(id: id, name: text)
+            writeProbeLog("[engine] rename id=\(id) name=\(text)")
+        case .setLocation:
+            let ids = Array(selectedIDs)
+            guard !text.isEmpty, !ids.isEmpty else { cancelDialog(); return }
+            engine.setLocation(ids: ids, location: text)
+            writeProbeLog("[engine] setLocation ids=\(ids.count) location=\(text)")
+        }
+        activeDialog = nil
+        refresh()
     }
 
     var canPauseAll: Bool {

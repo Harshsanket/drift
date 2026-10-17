@@ -550,8 +550,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     // MARK: - TorrentEngine mutations
 
-    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {
-        let summary = Self.placeholderSummary(for: source)
+    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {        let summary = Self.placeholderSummary(for: source)
         writeProbeLog("[engine] real add id=\(summary.id) name=\(summary.name) savePath=\(savePath)")
         Task {
             do {
@@ -608,6 +607,99 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     private static func hashParam(_ ids: [String]) -> String {
         ids.sorted().joined(separator: "|")
+    }
+
+    // MARK: A1 lifecycle parity
+
+    func forceStart(ids: [String]) {
+        postAction("torrents/forceStart", [("hashes", Self.hashParam(ids))])
+    }
+
+    func recheck(ids: [String]) {
+        postAction("torrents/recheck", [("hashes", Self.hashParam(ids))])
+    }
+
+    func queue(ids: [String], move: QueueMove) {
+        let path: String
+        switch move {
+        case .top: path = "torrents/topPrio"
+        case .up: path = "torrents/increasePrio"
+        case .down: path = "torrents/decreasePrio"
+        case .bottom: path = "torrents/bottomPrio"
+        }
+        postAction(path, [("hashes", Self.hashParam(ids))])
+    }
+
+    func setLocation(ids: [String], location: String) {
+        postAction("torrents/setLocation", [
+            ("hashes", Self.hashParam(ids)),
+            ("location", location)
+        ])
+    }
+
+    func rename(id: String, name: String) {
+        postAction("torrents/rename", [("hash", id), ("name", name)])
+    }
+
+    func renameFile(id: String, fileIndex: Int, name: String) {
+        postAction("torrents/renameFile", [("hash", id), ("id", String(fileIndex)), ("name", name)])
+    }
+
+    func setDownloadLimit(ids: [String], bytesPerSecond: Int64) {
+        postAction("torrents/setDownloadLimit", [
+            ("hashes", Self.hashParam(ids)),
+            ("limit", String(bytesPerSecond))
+        ])
+    }
+
+    func setUploadLimit(ids: [String], bytesPerSecond: Int64) {
+        postAction("torrents/setUploadLimit", [
+            ("hashes", Self.hashParam(ids)),
+            ("limit", String(bytesPerSecond))
+        ])
+    }
+
+    func setShareLimits(ids: [String], ratio: Double?, minutes: Int?) {
+        // qBittorrent sentinel values: -1 disabled, -2 use global defaults.
+        postAction("torrents/setShareLimits", [
+            ("hashes", Self.hashParam(ids)),
+            ("ratioLimit", ratio.map { String(format: "%.2f", $0) } ?? "-1"),
+            ("seedingTimeLimit", minutes.map(String.init) ?? "-1")
+        ])
+    }
+
+    func toggleSequentialDownload(ids: [String]) {
+        postAction("torrents/toggleSequentialDownload", [("hashes", Self.hashParam(ids))])
+    }
+
+    func toggleFirstLastPiecePriority(ids: [String]) {
+        postAction("torrents/toggleFirstLastPiecePrio", [("hashes", Self.hashParam(ids))])
+    }
+
+    func setSuperSeeding(ids: [String], enabled: Bool) {
+        postAction("torrents/setSuperSeeding", [
+            ("hashes", Self.hashParam(ids)),
+            ("value", enabled ? "true" : "false")
+        ])
+    }
+
+    func setAutoManagement(ids: [String], enabled: Bool) {
+        postAction("torrents/setAutoManagement", [
+            ("hashes", Self.hashParam(ids)),
+            ("enable", enabled ? "true" : "false")
+        ])
+    }
+
+    private func postAction(_ path: String, _ items: [(String, String)]) {
+        writeProbeLog("[engine] \(path) \(Self.form(items))")
+        Task {
+            do {
+                try await postForm(path: path, items: items)
+                try? await syncOnce()
+            } catch {
+                writeProbeLog("[engine] \(path) failed: \(describe(error))")
+            }
+        }
     }
 
     private static func placeholderSummary(for source: AddSource) -> TorrentSummary {
@@ -749,7 +841,11 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             downloaded: (fields["downloaded"] as? NSNumber)?.int64Value ?? 0,
             uploaded: (fields["uploaded"] as? NSNumber)?.int64Value ?? 0,
             savePath: (fields["save_path"] as? String) ?? "",
-            addedOn: addedOn
+            addedOn: addedOn,
+            sequential: (fields["seq_dl"] as? Bool) ?? false,
+            firstLastPiecePriority: (fields["f_l_piece_prio"] as? Bool) ?? false,
+            superSeeding: (fields["super_seeding"] as? Bool) ?? false,
+            autoManaged: (fields["auto_tmm"] as? Bool) ?? true
         )
     }
 

@@ -158,6 +158,37 @@ struct TorrentListView: View {
         } message: {
             Text(removalMessage)
         }
+        .alert(
+            dialogTitle,
+            isPresented: Binding(
+                get: { model.activeDialog != nil },
+                set: { if !$0 { model.cancelDialog() } }
+            )
+        ) {
+            TextField(dialogPrompt, text: $model.pendingText)
+            Button("OK") {
+                model.confirmDialog()
+            }
+            Button("Cancel", role: .cancel) {
+                model.cancelDialog()
+            }
+        }
+    }
+
+    private var dialogTitle: String {
+        switch model.activeDialog {
+        case .rename: "Rename Torrent"
+        case .setLocation: "Set Save Location"
+        case nil: ""
+        }
+    }
+
+    private var dialogPrompt: String {
+        switch model.activeDialog {
+        case .rename: "Name"
+        case .setLocation: "Location"
+        case nil: ""
+        }
     }
 
     private var removalMessage: String {
@@ -190,30 +221,130 @@ private struct TorrentRowMenu: View {
     let model: ListViewModel
     let torrent: TorrentSummary
 
+    /// qBittorrent semantics: right-clicking a row that is part of the
+    /// selection acts on the whole selection; otherwise on that row only.
+    private var targets: [String] {
+        model.selectedIDs.contains(torrent.id)
+            ? Array(model.selectedIDs)
+            : [torrent.id]
+    }
+
     var body: some View {
         Button {
-            model.startTorrents([torrent.id])
+            model.startTorrents(targets)
         } label: {
-            Label("Start", systemImage: "play.fill")
+            Label("Resume", systemImage: "play.fill")
         }
-        .disabled(!model.isConnected || torrent.status != .stopped)
-        .help("Start")
+        .disabled(actionUnavailable(torrent.status != .stopped))
 
         Button {
-            model.stopTorrents([torrent.id])
+            model.forceStartTorrents(targets)
+        } label: {
+            Label("Force Resume", systemImage: "play.circle.fill")
+        }
+        .disabled(actionUnavailable(torrent.status == .seeding))
+
+        Button {
+            model.stopTorrents(targets)
         } label: {
             Label("Stop", systemImage: "pause.fill")
         }
-        .disabled(!model.isConnected || torrent.status == .stopped)
-        .help("Stop")
+        .disabled(actionUnavailable(torrent.status == .stopped))
 
         Button {
-            model.requestRemoval([torrent.id])
+            model.requestRemoval(targets)
         } label: {
-            Label("Remove", systemImage: "trash")
+            Label("Remove…", systemImage: "trash")
         }
         .disabled(!model.isConnected)
-        .help("Remove")
+
+        Divider()
+
+        Button {
+            model.recheckTorrents(targets)
+        } label: {
+            Label("Recheck", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .disabled(actionUnavailable(false))
+
+        Button {
+            if model.selectedIDs.contains(torrent.id) {
+                model.requestSetLocation(targets)
+            } else {
+                model.requestSetLocation([torrent.id])
+            }
+        } label: {
+            Label("Location…", systemImage: "folder")
+        }
+        .disabled(!model.isConnected)
+
+        Button {
+            model.requestRename(torrent.id)
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+        .disabled(!model.isConnected)
+
+        Menu {
+            Button {
+                model.queueTorrents(targets, move: .top)
+            } label: {
+                Label("Top", systemImage: "arrow.up.to.line")
+            }
+            .disabled(actionUnavailable(false))
+            Button {
+                model.queueTorrents(targets, move: .up)
+            } label: {
+                Label("Up", systemImage: "arrow.up")
+            }
+            .disabled(actionUnavailable(false))
+            Button {
+                model.queueTorrents(targets, move: .down)
+            } label: {
+                Label("Down", systemImage: "arrow.down")
+            }
+            .disabled(actionUnavailable(false))
+            Button {
+                model.queueTorrents(targets, move: .bottom)
+            } label: {
+                Label("Bottom", systemImage: "arrow.down.to.line")
+            }
+            .disabled(actionUnavailable(false))
+        } label: {
+            Label("Queue", systemImage: "list.number")
+        }
+
+        Divider()
+
+        Toggle(isOn: Binding(
+            get: { torrent.sequential },
+            set: { _ in model.toggleSequentialDownload(targets) }
+        )) {
+            Label("Sequential Download", systemImage: "arrow.down.number")
+        }
+
+        Toggle(isOn: Binding(
+            get: { torrent.firstLastPiecePriority },
+            set: { _ in model.toggleFirstLastPiecePriority(targets) }
+        )) {
+            Label("First & Last Piece Priority", systemImage: "rectangle.split.2x1")
+        }
+
+        Toggle(isOn: Binding(
+            get: { torrent.superSeeding },
+            set: { model.setSuperSeeding(targets, enabled: $0) }
+        )) {
+            Label("Super Seeding", systemImage: "arrow.up.circle")
+        }
+
+        Divider()
+
+        Toggle(isOn: Binding(
+            get: { torrent.autoManaged },
+            set: { model.setTorrentAutoManagement(targets, enabled: $0) }
+        )) {
+            Label("Automatic Torrent Management", systemImage: "automatic")
+        }
 
         Divider()
 
@@ -223,5 +354,9 @@ private struct TorrentRowMenu: View {
         } label: {
             Label("Copy Name", systemImage: "doc.on.doc")
         }
+    }
+
+    private func actionUnavailable(_ specialCase: Bool) -> Bool {
+        specialCase || !model.isConnected
     }
 }
