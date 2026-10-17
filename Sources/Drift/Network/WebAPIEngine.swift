@@ -551,15 +551,16 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         try Self.requireOK(response)
         return data
     }
-
     // MARK: - TorrentEngine mutations
 
-    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {        let summary = Self.placeholderSummary(for: source)
-        writeProbeLog("[engine] real add id=\(summary.id) name=\(summary.name) savePath=\(savePath)")
+    func addTorrent(source: AddSource, options: AddOptions) -> TorrentSummary {
+        let summary = Self.placeholderSummary(for: source)
+        writeProbeLog("[engine] real add id=\(summary.id) name=\(summary.name) savePath=\(options.savePath)")
         Task {
             do {
-                try await postAdd(source: source, savePath: savePath)
+                try await postAdd(source: source, options: options)
                 try? await syncOnce()
+                prefetchOrganizers()
             } catch {
                 writeProbeLog("[engine] real add failed: \(describe(error))")
             }
@@ -836,13 +837,27 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         try Self.requireOK(response)
     }
 
-    private func postAdd(source: AddSource, savePath: String) async throws {
+    private static func addParameters(options: AddOptions) -> [(String, String)] {
+        [
+            ("savepath", options.savePath),
+            ("category", options.category ?? ""),
+            ("tags", options.tags.joined(separator: ",")),
+            ("skip_checking", options.skipChecking ? "true" : "false"),
+            ("paused", options.startAutomatically ? "false" : "true"),
+            ("contentLayout", options.contentLayout.rawValue),
+            ("sequentialDownload", options.sequentialDownload ? "true" : "false"),
+            ("firstLastPiecePrio", options.firstLastPiecePriority ? "true" : "false"),
+            ("autoTMM", options.autoManaged ? "true" : "false")
+        ]
+    }
+
+    private func postAdd(source: AddSource, options: AddOptions) async throws {
         var request = URLRequest(url: base.appendingPathComponent("api/v2/torrents/add"))
         request.httpMethod = "POST"
         switch source {
         case .magnetOrURL(let text):
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Data(Self.form([("urls", text), ("savepath", savePath)]).utf8)
+            request.httpBody = Data(Self.form([("urls", text)] + Self.addParameters(options: options)).utf8)
         case .torrentFile(let url):
             let data = try Data(contentsOf: url)
             let boundary = "DriftBoundary-\(UUID().uuidString)"
@@ -851,7 +866,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             let field = { (name: String, value: String) in
                 body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
             }
-            field("savepath", savePath)
+            for (name, value) in Self.addParameters(options: options) {
+                field(name, value)
+            }
             body.append(Data(
                 "--\(boundary)\r\nContent-Disposition: form-data; name=\"torrents\"; filename=\"\(url.lastPathComponent)\"\r\n\r\n"
                     .utf8

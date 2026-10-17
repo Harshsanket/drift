@@ -12,6 +12,19 @@ struct ContentView: View {
         model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
     }
 
+    /// Maps anything the OS hands us (magnet: URL callback, opening a .torrent
+    /// document, dragging one in) to an add-flow source.
+    static func handoff(for url: URL) -> AddSource? {
+        if url.isFileURL {
+            return url.pathExtension.lowercased() == "torrent" ? .torrentFile(url) : nil
+        }
+        if let scheme = url.scheme?.lowercased(),
+           scheme == "magnet" || scheme == "http" || scheme == "https" {
+            return .magnetOrURL(url.absoluteString)
+        }
+        return nil
+    }
+
     /// How far the padded header extends past whatever top safe-area inset the
     /// detail column actually has (the titlebar strip in a normal window, 0 in
     /// fullscreen). Measured, not assumed, so the header never overlaps the
@@ -83,6 +96,20 @@ struct ContentView: View {
         .sheet(isPresented: $model.showConnectionSheet) {
             ConnectionSheet()
         }
+        .onOpenURL { url in
+            if let handoff = Self.handoff(for: url) {
+                model.handleOSHandoff(handoff)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            for url in urls {
+                if let handoff = Self.handoff(for: url) {
+                    model.handleOSHandoff(handoff)
+                    return true
+                }
+            }
+            return false
+        }
         .preferredColorScheme(AppSettings.shared.appearance.colorScheme)
         .onAppear {
             writeProbeLog("[nav] content appear")
@@ -140,7 +167,7 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     model.confirmAdd(
                         source: .magnetOrURL("magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=Test+Added+Torrent&xl=1234567890"),
-                        savePath: "~/Downloads"
+                        options: AddOptions(savePath: "~/Downloads")
                     )
                 }
                 // The test torrent is real state now; drop it again after
@@ -158,7 +185,7 @@ struct ContentView: View {
                     writeProbeLog("[engine] mutations start count=\(model.torrents.count)")
                     model.confirmAdd(
                         source: .magnetOrURL("magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&dn=drift-added-test"),
-                        savePath: "~/Downloads"
+                        options: AddOptions(savePath: "~/Downloads")
                     )
                     try? await Task.sleep(for: .seconds(2))
                     let added = model.torrents.first { $0.id == String(repeating: "b", count: 40) }
@@ -178,7 +205,7 @@ struct ContentView: View {
                     if FileManager.default.fileExists(atPath: "/tmp/qbt-ubuntu.torrent") {
                         model.confirmAdd(
                             source: .torrentFile(URL(fileURLWithPath: "/tmp/qbt-ubuntu.torrent")),
-                            savePath: "/tmp/drift-e2e"
+                            options: AddOptions(savePath: "/tmp/drift-e2e")
                         )
                         try? await Task.sleep(for: .seconds(3))
                         if let fileTorrent = model.torrents.first(where: { $0.name.contains("ubuntu") }) {

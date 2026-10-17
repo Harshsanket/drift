@@ -11,6 +11,15 @@ struct AddTorrentSheet: View {
     @State private var showFileImporter = false
     @State private var showDestinationImporter = false
 
+    @State private var startTorrent = true
+    @State private var skipChecking = false
+    @State private var sequentialDownload = false
+    @State private var firstLastPiecePriority = false
+    @State private var autoManaged = true
+    @State private var contentLayout: ContentLayout = .original
+    @State private var selectedCategory: String?
+    @State private var tagsText = ""
+
     private static var torrentType: UTType {
         UTType(filenameExtension: "torrent") ?? .data
     }
@@ -75,6 +84,12 @@ struct AddTorrentSheet: View {
                 Button("Choose…") { showDestinationImporter = true }
             }
 
+            Text("Torrent options")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            optionsGrid
+
             if showValidationError {
                 Text("Not a valid magnet link or URL")
                     .font(.caption)
@@ -91,7 +106,24 @@ struct AddTorrentSheet: View {
                 Button("Add") {
                     let source: AddSource = sourceFile.map { .torrentFile($0) }
                         ?? .magnetOrURL(trimmed)
-                    model.confirmAdd(source: source, savePath: destination)
+                    let tags = tagsText
+                        .split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    model.confirmAdd(
+                        source: source,
+                        options: AddOptions(
+                            savePath: destination,
+                            category: selectedCategory,
+                            tags: tags,
+                            startAutomatically: startTorrent,
+                            skipChecking: skipChecking,
+                            sequentialDownload: sequentialDownload,
+                            firstLastPiecePriority: firstLastPiecePriority,
+                            contentLayout: contentLayout,
+                            autoManaged: autoManaged
+                        )
+                    )
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
@@ -99,7 +131,18 @@ struct AddTorrentSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 480)
+        .frame(width: 520)
+        .onAppear {
+            if let handoff = model.pendingAddHandoff {
+                switch handoff {
+                case .magnetOrURL(let text):
+                    sourceText = text
+                case .torrentFile(let url):
+                    sourceFile = url
+                }
+                model.pendingAddHandoff = nil
+            }
+        }
         .fileImporter(
             isPresented: $showFileImporter,
             allowedContentTypes: [Self.torrentType],
@@ -117,6 +160,68 @@ struct AddTorrentSheet: View {
             if case .success(let urls) = result, let url = urls.first {
                 destination = url.path
             }
+        }
+    }
+
+    private var optionsGrid: some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+            GridRow {
+                Text("Category")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Picker("Category", selection: $selectedCategory) {
+                        Text("—").tag(String?.none)
+                        ForEach(model.categories) { category in
+                            Text(category.name).tag(String?.some(category.name))
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                }
+            }
+            GridRow {
+                Text("Tags")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    TextField("comma, separated", text: $tagsText)
+                        .textFieldStyle(.roundedBorder)
+                    Spacer()
+                }
+            }
+            GridRow {
+                Text("Layout")
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Picker("Content layout", selection: $contentLayout) {
+                        ForEach(ContentLayout.allCases, id: \.self) { layout in
+                            Text(layout.label).tag(layout)
+                        }
+                    }
+                    .fixedSize()
+                    Spacer()
+                }
+            }
+            GridRow(alignment: .top) {
+                Text("Toggles")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("Start torrent", isOn: $startTorrent)
+                    Toggle("Automatic torrent management", isOn: $autoManaged)
+                    Toggle("Sequential download", isOn: $sequentialDownload)
+                    Toggle("First & last piece priority", isOn: $firstLastPiecePriority)
+                    Toggle("Skip hash check", isOn: $skipChecking)
+                }
+            }
+        }
+    }
+}
+
+extension ContentLayout {
+    var label: String {
+        switch self {
+        case .original: "Automatic"
+        case .subfolder: "Create subfolder"
+        case .noSubfolder: "No subfolder"
         }
     }
 }

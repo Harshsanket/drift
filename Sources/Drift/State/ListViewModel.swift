@@ -123,6 +123,9 @@ final class ListViewModel {
     var showCategories = false
     var showTags = false
     var showAddSheet = false
+    /// Sources handed over from the OS (magnet URLs, dropped .torrent files)
+    /// that the add sheet should present pre-filled.
+    var pendingAddHandoff: AddSource?
     var showConnectionSheet = false
     var pendingRemoval: Set<String>?
     private var detailsCache: [String: TorrentDetails] = [:]
@@ -611,13 +614,20 @@ final class ListViewModel {
         return (active, seeding, progress)
     }
 
-    func confirmAdd(source: AddSource, savePath: String) {
+    func confirmAdd(source: AddSource, options: AddOptions) {
         guard let engine, isConnected else { return }
-        let summary = engine.addTorrent(source: source, savePath: savePath)
+        let summary = engine.addTorrent(source: source, options: options)
         refresh()
         selectedIDs = [summary.id]
         showAddSheet = false
-        writeProbeLog("[sheet] added \(summary.id) savePath=\(savePath)")
+        pendingAddHandoff = nil
+        writeProbeLog("[sheet] added \(summary.id) savePath=\(options.savePath)")
+    }
+
+    func handleOSHandoff(_ source: AddSource) {
+        pendingAddHandoff = source
+        showAddSheet = true
+        writeProbeLog("[sheet] os handoff pending")
     }
 
     func startTorrents(_ ids: [String]) {

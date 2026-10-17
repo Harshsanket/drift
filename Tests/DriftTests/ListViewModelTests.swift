@@ -51,11 +51,11 @@ private final class StubEngine: TorrentEngine, @unchecked Sendable {
 
     func setFilePriority(id: String, fileIndex: Int, priority: FilePriority) {}
 
-    func addTorrent(source: AddSource, savePath: String) -> TorrentSummary {
+    func addTorrent(source: AddSource, options: AddOptions) -> TorrentSummary {
         let summary = TorrentSummary(
             id: "stub-\(UUID().uuidString.prefix(8))", name: "Stub Added",
             status: .downloading, progress: 0, size: 0,
-            downloadSpeed: 0, uploadSpeed: 0, eta: nil, category: nil, tags: []
+            downloadSpeed: 0, uploadSpeed: 0, eta: nil, category: options.category, tags: options.tags
         )
         lock.withLock { store.insert(summary, at: 0) }
         return summary
