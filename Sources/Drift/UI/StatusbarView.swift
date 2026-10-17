@@ -22,15 +22,10 @@ struct StatusbarView: View {
                         .monospacedDigit()
                         .help("Free space on the server")
                 }
-                // In-progress states (checking/moving) appear as live chips
-                // only while they exist — no one rests in them, so they don't
-                // merit permanent sidebar rows.
-                if model.isConnected, model.count(for: .checking) > 0 {
-                    statusChip(.checking)
-                }
-                if model.isConnected, model.count(for: .moving) > 0 {
-                    statusChip(.moving)
-                }
+                // Transient activity (checking/moving) rides the status bar as
+                // animated chips that name the torrent in flight and fold away
+                // the moment the state ends.
+                transientChips
             }
 
             Spacer(minLength: DesignSystem.Spacing.md)
@@ -59,6 +54,49 @@ struct StatusbarView: View {
         .frame(maxWidth: .infinity, minHeight: DesignSystem.Metrics.statusBarHeight)
     }
 
+    private var transientChips: some View {
+        let checking = model.count(for: .checking)
+        let moving = model.count(for: .moving)
+        return HStack(spacing: DesignSystem.Spacing.sm) {
+            if checking > 0 {
+                activityChip(.checking, count: checking)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.7, anchor: .leading)
+                            .combined(with: .opacity),
+                        removal: .opacity.combined(with: .scale(scale: 0.8, anchor: .leading))
+                    ))
+            }
+            if moving > 0 {
+                activityChip(.moving, count: moving)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.7, anchor: .leading)
+                            .combined(with: .opacity),
+                        removal: .opacity.combined(with: .scale(scale: 0.8, anchor: .leading))
+                    ))
+            }
+        }
+        // Keyed on the counts, not the whole torrent churn: chips grow in and
+        // dissolve out only when the states start/end.
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: [checking, moving])
+    }
+
+    @ViewBuilder
+    private func activityChip(_ status: TorrentStatus, count: Int) -> some View {
+        if let name = model.leadingName(for: status) {
+            HStack(spacing: 4) {
+                Image(systemName: status.systemImage)
+                Text(status.label)
+                    .fontWeight(.medium)
+                Text(name)
+                    .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(status.tint)
+            .frame(maxWidth: 320, alignment: .leading)
+            .help("\(count) torrent\(count == 1 ? "" : "s") \(status.label.lowercased()) on the server right now")
+        }
+    }
+
     @ViewBuilder
     private var connectionIndicator: some View {
         switch model.connectionState {
@@ -72,17 +110,6 @@ struct StatusbarView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
         }
-    }
-
-    @ViewBuilder
-    private func statusChip(_ status: TorrentStatus) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.systemImage)
-            Text("\(status.label) \(model.count(for: StatusFilter(rawValue: status.rawValue) ?? .all))")
-        }
-        .foregroundStyle(status.tint)
-        .monospacedDigit()
-        .help("\(status.label) torrents on the server — informational only")
     }
 
     private func speed(systemImage: String, value: Int64, tint: Color) -> some View {

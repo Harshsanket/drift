@@ -485,6 +485,14 @@ final class ListViewModel {
         torrents.filter { filter.matches($0) }.count
     }
 
+    /// Display name for a transient activity chip: the torrent currently in
+    /// that state, collapsed with "+N" when several share the state at once.
+    func leadingName(for status: TorrentStatus) -> String? {
+        let names = torrents.filter { $0.status == status }.map(\.name)
+        guard let first = names.first else { return nil }
+        return names.count > 1 ? "\(first) +\(names.count - 1)" : first
+    }
+
     func refresh() {
         torrents = engine?.loadTorrents() ?? []
         if let real = engine as? WebAPIEngine {
