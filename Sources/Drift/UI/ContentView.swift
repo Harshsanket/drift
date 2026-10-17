@@ -49,33 +49,49 @@ struct ContentView: View {
                     // Fixed width (min = max): the split divider is not draggable.
                     .navigationSplitViewColumnWidth(210)
             } detail: {
-                TorrentListView(model: model)
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        Color.clear
-                            .frame(height: headerOverflow)
-                            .allowsHitTesting(false)
-                    }
-                    // Outside the safeAreaInset so it measures only the system
-                    // inset, not our own overflow padding.
-                    .background {
-                        GeometryReader { proxy in
+                if model.showRSSPane {
+                    RSSPaneView(model: model)
+                        .safeAreaInset(edge: .top, spacing: 0) {
                             Color.clear
-                                .onAppear { detailTopInset = proxy.safeAreaInsets.top }
-                                .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
-                                    detailTopInset = newInset
-                                }
+                                .frame(height: headerOverflow)
+                                .allowsHitTesting(false)
                         }
-                    }
-                    // The footer floats above the table instead of insetting it,
-                    // so the horizontal scrollbar stays at the window's bottom
-                    // edge, below the info bar. The table probe applies a
-                    // matching scroll content inset so rows clear the bar.
-                    // The window itself is transparent so the sidebar can show
-                    // the desktop; the detail column must stay solid.
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    .overlay(alignment: .bottom) {
-                        footer
-                    }
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear
+                                    .onAppear { detailTopInset = proxy.safeAreaInsets.top }
+                                    .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
+                                        detailTopInset = newInset
+                                    }
+                            }
+                        }
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .bottom) { footer }
+                } else {
+                    TorrentListView(model: model)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            Color.clear
+                                .frame(height: headerOverflow)
+                                .allowsHitTesting(false)
+                        }
+                        // Outside the safeAreaInset so it measures only the
+                        // system inset, not our own overflow padding.
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear
+                                    .onAppear { detailTopInset = proxy.safeAreaInsets.top }
+                                    .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
+                                        detailTopInset = newInset
+                                    }
+                            }
+                        }
+                        // The window is transparent so the sidebar can show
+                        // the desktop; the detail column must stay solid.
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .bottom) {
+                            footer
+                        }
+                }
             }
             .tint(DesignSystem.Palette.accent)
             .onPreferenceChange(SidebarWidthPreference.self) { width in
@@ -98,6 +114,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.showStatistics) {
             StatisticsSheet(model: model)
+        }
+        .sheet(isPresented: $model.showSearchPane) {
+            SearchSheet(model: model)
         }
         .onOpenURL { url in
             if let handoff = Self.handoff(for: url) {
@@ -453,6 +472,83 @@ struct ContentView: View {
                             password: password
                         )
                     }
+                }
+            }
+            // Verification-only: --test-rss loads the server's feeds, marks
+            // one read, adds one, removes it, reloads (log-verifiable).
+            if ProcessInfo.processInfo.arguments.contains("--test-rss") {
+                Task { @MainActor in
+                    writeProbeLog("[rss] hook start")
+                    await model.connectRealBackend(
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    for _ in 0..<80 {
+                        if model.isConnected { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    model.toggleRSSPane(true)
+                    for _ in 0..<20 {
+                        if model.rssContentLoaded { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    writeProbeLog(
+                        "[rss] feeds=\(model.rssFeeds.map { "\($0.name):\(model.selectedRSSFeed?.articles.count ?? 0)" })"
+                    )
+                    if let feed = model.rssFeeds.first {
+                        model.selectRSSFeed(feed)
+                        let first = feed.articles.first
+                        if let article = first {
+                            model.markRSSArticleRead(article, in: feed)
+                            writeProbeLog("[rss] marked read id=\(article.id)")
+                        }
+                        model.addRSSFeed(url: "https://verify.example/example.xml")
+                        try? await Task.sleep(for: .seconds(2))
+                        writeProbeLog(
+                            "[rss] after add n=\(model.rssFeeds.count) "
+                                + model.rssFeeds.map(\.name).joined(separator: ",")
+                        )
+                        // Snapshot after reload, then restore the research state.
+                        if let added = model.rssFeeds.first(where: { $0.url.contains("verify.example") }) {
+                            model.removeRSSFeed(added)
+                            try? await Task.sleep(for: .seconds(2))
+                            writeProbeLog(
+                                "[rss] after remove n=\(model.rssFeeds.count)"
+                            )
+                        }
+                        model.toggleRSSPane(false)
+                    }
+                    writeProbeLog("[rss] sequence done")
+                }
+            }
+            // Verification-only: --test-search starts a plugin search, polls,
+            // snapshots the results, downloads one into the add sheet, stops.
+            if ProcessInfo.processInfo.arguments.contains("--test-search") {
+                Task { @MainActor in
+                    writeProbeLog("[search] hook start")
+                    await model.connectRealBackend(
+                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    )
+                    for _ in 0..<80 {
+                        if model.isConnected { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    model.startSearch(pattern: "ubuntu")
+                    try? await Task.sleep(for: .seconds(4))
+                    writeProbeLog(
+                        "[search] results=\(model.searchResults.count) running=\(model.searchRunning) "
+                            + model.searchResults.map(\.fileName).joined(separator: ";")
+                    )
+                    if let first = model.searchResults.first {
+                        model.downloadSearchResult(first)
+                        try? await Task.sleep(for: .seconds(1))
+                        writeProbeLog(
+                            "[search] handoff sheet=\(model.showAddSheet) pending=\(model.pendingAddHandoff != nil)"
+                        )
+                        model.showAddSheet = false
+                        model.pendingAddHandoff = nil
+                    }
+                    model.clearSearchResults()
+                    writeProbeLog("[search] sequence done")
                 }
             }
             // Verification-only: --test-sync forces a real backend connection

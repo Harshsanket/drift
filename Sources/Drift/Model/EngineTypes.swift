@@ -45,3 +45,36 @@ struct AddOptions: Equatable {
     var contentLayout: ContentLayout = .original
     var autoManaged = true
 }
+
+/// One article of an RSS feed, from `rss/items` (withData=true).
+struct RSSArticle: Identifiable, Equatable, Hashable {
+    var id: Int
+    var title: String
+    var torrentURL: String
+    var date: String
+    var isRead: Bool
+    var torrentHash: String?
+}
+
+/// A flat RSS feed. The server organizes feeds in nested folders; Drift
+/// presents the flat list of leaf feeds only (folders are ignored).
+struct RSSFeed: Identifiable, Equatable, Hashable {
+    var name: String
+    var url: String
+    var articles: [RSSArticle]
+    var isLoading = false
+    var hasError = false
+    var id: String { name }
+}
+
+/// One row of a server-side search (`search/results`).
+struct SearchResult: Identifiable, Equatable {
+    var fileName: String
+    var fileURL: String
+    var fileSize: Int64
+    var seeders: Int64
+    var leechers: Int64
+    var siteURL: String
+    var engineName: String
+    var id: String { fileURL + siteURL }
+}

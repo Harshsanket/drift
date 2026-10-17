@@ -361,6 +361,25 @@ private struct MoreOptionsMenu: View {
             )
             .disabled(!model.isConnected)
 
+            Divider()
+
+            Toggle(
+                "RSS Reader",
+                isOn: Binding(
+                    get: { model.showRSSPane },
+                    set: { model.toggleRSSPane($0) }
+                )
+            )
+            .disabled(!model.isConnected)
+
+            Button {
+                model.showSearchPane = true
+            } label: {
+                Label("Server Search…", systemImage: "magnifyingglass")
+            }
+            .help("Search through server plugins")
+            .disabled(!model.isConnected)
+
             Button {
                 model.showStatistics = true
             } label: {

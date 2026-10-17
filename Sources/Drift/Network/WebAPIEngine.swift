@@ -731,6 +731,108 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         )
     }
 
+    // MARK: RSS
+
+    func rssFeeds() async -> [RSSFeed]? {
+        do {
+            let data = try await fetchData(
+                path: "rss/items",
+                query: [URLQueryItem(name: "withData", value: "true")]
+            )
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            var feeds: [RSSFeed] = []
+            if let wrapped = root["feeds"] as? [[String: Any]] {
+                for node in wrapped { collectFeeds(node, into: &feeds) }
+            } else {
+                collectFeeds(root, into: &feeds)
+            }
+            return feeds
+        } catch {
+            writeProbeLog("[engine] rssFeeds failed: \(describe(error))")
+            return nil
+        }
+    }
+
+    func addRSSFeed(url: String, path: String?) {
+        var items = [("url", url)]
+        if let path, !path.isEmpty { items.append(("path", path)) }
+        postAction("rss/addFeed", items)
+    }
+
+    func removeRSSItem(path: String) {
+        postAction("rss/removeItem", [("itemPath", path)])
+    }
+
+    func markRSSRead(path: String, articleId: Int?) {
+        var items = [("itemPath", path)]
+        if let articleId { items.append(("articleId", String(articleId))) }
+        postAction("rss/markAsRead", items)
+    }
+
+    func refreshRSSItem(path: String) {
+        postAction("rss/refreshItem", [("itemPath", path)])
+    }
+
+    // MARK: Search
+
+    func startSearch(pattern: String, category: String) async -> Int64? {
+        do {
+            let data = try await postForData(
+                path: "search/start",
+                items: [("pattern", pattern), ("plugins", "enabled"), ("category", category)]
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = (json["id"] as? NSNumber)?.int64Value
+            else { return nil }
+            return id
+        } catch {
+            writeProbeLog("[engine] startSearch failed: \(describe(error))")
+            return nil
+        }
+    }
+
+    func stopSearch(id: Int64) {
+        postAction("search/stop", [("id", String(id))])
+    }
+
+    func deleteSearch(id: Int64) {
+        postAction("search/delete", [("id", String(id))])
+    }
+
+    func searchResults(id: Int64) async -> (status: String, results: [SearchResult])? {
+        do {
+            let data = try await fetchData(
+                path: "search/results",
+                query: [URLQueryItem(name: "id", value: String(id))]
+            )
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            let status = (json["status"] as? String) ?? "Running"
+            guard let rows = json["results"] as? [[String: Any]] else {
+                return (status, [])
+            }
+            let results = rows.map { row -> SearchResult in
+                let number = { (key: String) -> Int64 in
+                    (row[key] as? NSNumber)?.int64Value ?? 0
+                }
+                return SearchResult(
+                    fileName: (row["fileName"] as? String) ?? "",
+                    fileURL: (row["fileUrl"] as? String) ?? "",
+                    fileSize: number("fileSize"),
+                    seeders: number("nbSeeders"),
+                    leechers: number("nbLeechers"),
+                    siteURL: (row["siteUrl"] as? String) ?? "",
+                    engineName: (row["engineName"] as? String) ?? ""
+                )
+            }
+            return (status, results)
+        } catch {
+            writeProbeLog("[engine] searchResults failed: \(describe(error))")
+            return nil
+        }
+    }
+
     private func preferenceLimit(_ key: String) async -> Int64? {
         do {
             let data = try await fetchData(path: "app/preferences", query: [])
@@ -969,6 +1071,56 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         request.httpBody = Data(Self.form(items).utf8)
         let (_, response) = try await send(request)
         try Self.requireOK(response)
+    }
+
+    private func postForData(path: String, items: [(String, String)]) async throws -> Data {
+        var request = URLRequest(url: base.appendingPathComponent("api/v2/\(path)"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(Self.form(items).utf8)
+        let (data, response) = try await send(request)
+        try Self.requireOK(response)
+        return data
+    }
+
+    /// `rss/items` returns a tree of folders, feeds and URL leaves; Drift keeps
+    /// the flat list of feeds that carry `articles`. Node names arrive as
+    /// "name" (current qB 5.x) or "title" (older builds).
+    private func collectFeeds(_ node: [String: Any], into feeds: inout [RSSFeed]) {
+        guard let name = (node["name"] as? String) ?? (node["title"] as? String)
+        else { return }
+        if let children = node["children"] as? [[String: Any]] {
+            for child in children { collectFeeds(child, into: &feeds) }
+            return
+        }
+        if let children = node["children"] as? [[Any]] {
+            // Older serializers can wrap children as [Any].
+            for child in children.compactMap({ $0 as? [String: Any] }) {
+                collectFeeds(child, into: &feeds)
+            }
+            return
+        }
+        let articlesAny = node["articles"] as? [[String: Any]] ?? []
+        let flag = { (key: String) -> Bool in
+            (node[key] as? NSNumber)?.boolValue ?? false
+        }
+        let articles = articlesAny.map { article -> RSSArticle in
+            RSSArticle(
+                id: Int((article["id"] as? NSNumber)?.int64Value ?? 0),
+                title: (article["title"] as? String) ?? "",
+                torrentURL: (article["torrentURL"] as? String) ?? "",
+                date: (article["date"] as? String) ?? "",
+                isRead: (article["isRead"] as? NSNumber)?.boolValue ?? false,
+                torrentHash: (article["torrentHash"] as? String)
+            )
+        }
+        feeds.append(RSSFeed(
+            name: name,
+            url: (node["url"] as? String) ?? "",
+            articles: articles,
+            isLoading: flag("isLoading"),
+            hasError: flag("hasError")
+        ))
     }
 
     private static func addParameters(options: AddOptions) -> [(String, String)] {

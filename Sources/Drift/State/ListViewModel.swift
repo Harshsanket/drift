@@ -741,6 +741,172 @@ final class ListViewModel {
         writeProbeLog("[engine] toggleSpeedLimitsMode")
     }
 
+    // MARK: - RSS and search panes (A8/A9)
+
+    private(set) var rssFeeds: [RSSFeed] = []
+    private(set) var selectedRSSFeed: RSSFeed?
+    private(set) var rssContentLoaded = false
+    var showRSSPane = false
+
+    private(set) var searchResults: [SearchResult] = []
+    private(set) var searchRunning = false
+    private(set) var searchQuery = ""
+    private var activeSearchID: Int64?
+    private var searchPollTask: Task<Void, Never>?
+
+    func toggleRSSPane(_ enabled: Bool) {
+        showRSSPane = enabled
+        selectedIDs.removeAll()
+        if enabled { loadRSS() }
+        writeProbeLog("[engine] rss pane \(enabled)")
+    }
+
+    func loadRSS() {
+        Task {
+            for _ in 0..<10 {
+                guard let engine, isConnected else {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    continue
+                }
+                var feeds = await engine.rssFeeds()
+                if let feeds {
+                    rssFeeds = feeds
+                    if let current = selectedRSSFeed,
+                       let fresh = feeds.first(where: { $0.id == current.id }) {
+                        selectedRSSFeed = fresh
+                    } else {
+                        selectedRSSFeed = feeds.first
+                    }
+                    rssContentLoaded = true
+                    writeProbeLog("[engine] rss feeds loaded n=\(feeds.count)")
+                } else {
+                    rssContentLoaded = true
+                    writeProbeLog("[probe] rss ended nil")
+                }
+                return
+            }
+            writeProbeLog("[probe] rss never connected")
+        }
+    }
+
+    func selectRSSFeed(_ feed: RSSFeed?) {
+        selectedRSSFeed = feed
+    }
+
+    func addRSSFeed(url: String) {
+        engine?.addRSSFeed(url: url, path: nil)
+        Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            loadRSS()
+        }
+        writeProbeLog("[engine] rss add feed")
+    }
+
+    func removeRSSFeed(_ feed: RSSFeed) {
+        engine?.removeRSSItem(path: feed.name)
+        if selectedRSSFeed?.id == feed.id { selectedRSSFeed = nil }
+        Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            loadRSS()
+        }
+        writeProbeLog("[engine] rss remove feed")
+    }
+
+    func refreshRSSFeed(_ feed: RSSFeed) {
+        engine?.refreshRSSItem(path: feed.name)
+        Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            loadRSS()
+        }
+        writeProbeLog("[engine] rss refresh feed")
+    }
+
+    func markRSSArticleRead(_ article: RSSArticle, in feed: RSSFeed) {
+        engine?.markRSSRead(path: feed.name, articleId: article.id)
+        loadRSS()
+        writeProbeLog("[engine] rss mark read")
+    }
+
+    func markRSSFeedRead(_ feed: RSSFeed) {
+        engine?.markRSSRead(path: feed.name, articleId: nil)
+        loadRSS()
+        writeProbeLog("[engine] rss mark feed read")
+    }
+
+    func downloadRSSTorrent(_ article: RSSArticle) {
+        let url = article.torrentHash.map { "magnet:?xt=urn:btih:\($0)" } ?? article.torrentURL
+        guard !url.isEmpty else { return }
+        handleOSHandoff(.magnetOrURL(url))
+        writeProbeLog("[engine] rss download article")
+    }
+
+    // MARK: - Search (A9)
+
+    var showSearchPane = false
+
+    func startSearch(pattern: String) {
+        let trimmed = pattern.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let engine, isConnected else { return }
+        searchResults = []
+        searchRunning = true
+        searchQuery = trimmed
+        Task {
+            let id = await engine.startSearch(pattern: trimmed, category: "all")
+            activeSearchID = id
+            guard id != nil else {
+                searchRunning = false
+                writeProbeLog("[search] start failed")
+                return
+            }
+            writeProbeLog("[search] started id=\(id!) pattern=\(trimmed)")
+            pollSearch()
+        }
+    }
+
+    private func pollSearch() {
+        searchPollTask?.cancel()
+        guard let id = activeSearchID else { return }
+        searchPollTask = Task { @MainActor in
+            var lastStatus = "Running"
+            for _ in 0..<120 {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                guard let engine, isConnected else { return }
+                guard let response = await engine.searchResults(id: id) else { continue }
+                lastStatus = response.status
+                searchResults = response.results
+                if response.status == "Stopped" { break }
+            }
+            searchRunning = lastStatus == "Running"
+            writeProbeLog("[search] ended status=\(lastStatus)")
+        }
+    }
+
+    func stopSearch() {
+        guard let id = activeSearchID else { return }
+        searchPollTask?.cancel()
+        engine?.stopSearch(id: id)
+        searchRunning = false
+        writeProbeLog("[search] stopped")
+    }
+
+    func clearSearchResults() {
+        searchPollTask?.cancel()
+        if let id = activeSearchID { engine?.deleteSearch(id: id) }
+        searchResults = []
+        activeSearchID = nil
+        searchRunning = false
+        searchQuery = ""
+        writeProbeLog("[search] cleared")
+    }
+
+    func downloadSearchResult(_ result: SearchResult) {
+        handleOSHandoff(.magnetOrURL(result.fileURL))
+        writeProbeLog("[search] download \(result.fileName)")
+    }
+
+    // MARK: - Statistics dialog (A6)
+
     func requestStatistics() {
         showStatistics = true
         writeProbeLog("[engine] statistics requested")
