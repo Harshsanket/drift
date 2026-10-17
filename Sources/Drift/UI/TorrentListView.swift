@@ -88,6 +88,89 @@ struct TorrentListView: View {
             }
             .width(80)
             .customizationID("timeActive")
+
+            TableColumn("Category", value: \TorrentSummary.category) { torrent in
+                Text(torrent.category ?? "—")
+                    .tableCell(.leading, model, torrent)
+            }
+            .width(100)
+            .customizationID("category")
+
+            TableColumn("Tags") { torrent in
+                Text(torrent.tags.isEmpty ? "—" : torrent.tags.joined(separator: ", "))
+                    .tableCell(.leading, model, torrent)
+            }
+            .width(100)
+            .customizationID("tags")
+
+            TableColumn("Ratio", value: \TorrentSummary.ratio) { torrent in
+                Text(String(format: "%.2f", torrent.ratio))
+                    .monospacedDigit()
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(70)
+            .customizationID("ratio")
+
+            TableColumn("Added", value: \TorrentSummary.addedOn) { torrent in
+                Text(torrent.addedOn > 0
+                    ? Date(timeIntervalSince1970: torrent.addedOn).formatted(.abbreviatedDate)
+                    : "—")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(110)
+            .customizationID("addedOn")
+
+            TableColumn("Seeds", value: \TorrentSummary.seeds) { torrent in
+                Text("\(torrent.seeds)")
+                    .monospacedDigit()
+                    .foregroundStyle(torrent.seeds > 0 ? DesignSystem.Palette.seeding : .secondary)
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(60)
+            .customizationID("seeds")
+
+            TableColumn("Peers", value: \TorrentSummary.peers) { torrent in
+                Text("\(torrent.peers)")
+                    .monospacedDigit()
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(60)
+            .customizationID("peers")
+
+            TableColumn("Avail.", value: \TorrentSummary.availability) { torrent in
+                Text(torrent.progress >= 1 ? "∞" : String(format: "%.2f", torrent.availability))
+                    .monospacedDigit()
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(70)
+            .customizationID("availability")
+
+            TableColumn("Downloaded", value: \TorrentSummary.downloaded) { torrent in
+                Text(DesignSystem.Format.size(torrent.downloaded))
+                    .monospacedDigit()
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(100)
+            .customizationID("downloaded")
+
+            TableColumn("Uploaded", value: \TorrentSummary.uploaded) { torrent in
+                Text(DesignSystem.Format.size(torrent.uploaded))
+                    .monospacedDigit()
+                    .tableCell(.trailing, model, torrent)
+            }
+            .width(100)
+            .customizationID("uploaded")
+
+            TableColumn("Save Path", value: \TorrentSummary.savePath) { torrent in
+                Text(torrent.savePath.isEmpty ? "—" : torrent.savePath)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .tableCell(.leading, model, torrent)
+            }
+            .width(140)
+            .customizationID("savePath")
         }
         .tableStyle(.inset)
         // Selection clicks trigger a SwiftUI re-render of the table whose
@@ -300,6 +383,18 @@ private struct TorrentRowMenu: View {
             Label("Rename…", systemImage: "pencil")
         }
         .disabled(!model.isConnected)
+
+        Button {
+            let expanded = NSString(string: torrent.savePath).expandingTildeInPath
+            guard FileManager.default.isReadableFile(atPath: expanded) else {
+                writeProbeLog("[ui] open destination skipped (unreadable) \(expanded)")
+                return
+            }
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: expanded)
+        } label: {
+            Label("Open Destination Folder", systemImage: "arrow.up.right.folder")
+        }
+        .disabled(torrent.savePath.isEmpty)
 
         Menu {
             Button {
