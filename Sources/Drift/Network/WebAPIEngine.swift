@@ -2,6 +2,8 @@ import Foundation
 
 enum WebAPIError: Error {
     case invalidURL
+    case invalidSource
+    case fileTooLarge
     case badStatus(Int)
     case authFailed
     case notQBitTorrent
@@ -10,6 +12,8 @@ enum WebAPIError: Error {
     var message: String {
         switch self {
         case .invalidURL: "Invalid Web UI URL"
+        case .invalidSource: "Unsupported torrent source"
+        case .fileTooLarge: "Torrent file is larger than 100 MB"
         case .badStatus(let code): "Server returned HTTP \(code)"
         case .authFailed: "Authentication failed"
         case .notQBitTorrent: "Not a qBittorrent Web UI"
@@ -117,6 +121,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     private var tier: SyncTier = .active
     private var wakeRequested = false
+    private var sleepContinuation: CheckedContinuation<Void, Never>?
     private var loopAlive = false
     private var suspended = false
     private var syncGeneration = 0
@@ -161,6 +166,7 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         }
         if changed {
             writeProbeLog("[sync] tier -> \(newTier.rawValue)")
+            wakeSleepLoop()
             ensureSyncLoop()
         }
     }
@@ -249,18 +255,65 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     }
 
     private func sleepInterruptibly(milliseconds: Int) async throws {
-        var remaining = max(500, milliseconds)
-        while remaining > 0 {
-            let shouldWake = lock.withLock { () -> Bool in
-                guard wakeRequested else { return false }
-                wakeRequested = false
-                return true
-            }
-            if shouldWake { return }
-            let step = min(250, remaining)
-            try await Task.sleep(nanoseconds: UInt64(step) * 1_000_000)
-            remaining -= step
+        let duration = max(500, milliseconds)
+        let alreadyWoken = lock.withLock { () -> Bool in
+            guard wakeRequested else { return false }
+            wakeRequested = false
+            return true
         }
+        if alreadyWoken { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(duration))
+            }
+            group.addTask {
+                await self.waitForWake()
+            }
+            await group.next()
+            group.cancelAll()
+        }
+        try Task.checkCancellation()
+    }
+
+    /// Parks the sync loop until `wakeSleepLoop()` or cancellation resumes it,
+    /// instead of polling a flag every 250 ms.
+    private func waitForWake() async {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let immediate = lock.withLock { () -> Bool in
+                    guard !Task.isCancelled else { return true }
+                    if wakeRequested {
+                        wakeRequested = false
+                        return true
+                    }
+                    sleepContinuation = continuation
+                    return false
+                }
+                if immediate { continuation.resume() }
+            }
+        } onCancel: {
+            resumeSleepContinuation()
+        }
+    }
+
+    private func wakeSleepLoop() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            wakeRequested = true
+            let current = sleepContinuation
+            sleepContinuation = nil
+            return current
+        }
+        continuation?.resume()
+    }
+
+    private func resumeSleepContinuation() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            let current = sleepContinuation
+            sleepContinuation = nil
+            return current
+        }
+        continuation?.resume()
     }
 
     private func syncOnce() async throws {
@@ -301,7 +354,10 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             lastLoggedCount = count
             writeProbeLog("[sync] tick n=\(count) rid=\(nextRid)")
         }
-        if let onUpdate {
+        // qB long-polls return only the next rid when nothing changed; skip the
+        // whole model/UI refresh in that case.
+        let changed = json.keys.contains { $0 != "rid" }
+        if changed, let onUpdate {
             Task { @MainActor in onUpdate() }
         }
     }
@@ -882,33 +938,6 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         postAction("torrents/rename", [("hash", id), ("name", name)])
     }
 
-    func renameFile(id: String, fileIndex: Int, name: String) {
-        postAction("torrents/renameFile", [("hash", id), ("id", String(fileIndex)), ("name", name)])
-    }
-
-    func setDownloadLimit(ids: [String], bytesPerSecond: Int64) {
-        postAction("torrents/setDownloadLimit", [
-            ("hashes", Self.hashParam(ids)),
-            ("limit", String(bytesPerSecond))
-        ])
-    }
-
-    func setUploadLimit(ids: [String], bytesPerSecond: Int64) {
-        postAction("torrents/setUploadLimit", [
-            ("hashes", Self.hashParam(ids)),
-            ("limit", String(bytesPerSecond))
-        ])
-    }
-
-    func setShareLimits(ids: [String], ratio: Double?, minutes: Int?) {
-        // qBittorrent sentinel values: -1 disabled, -2 use global defaults.
-        postAction("torrents/setShareLimits", [
-            ("hashes", Self.hashParam(ids)),
-            ("ratioLimit", ratio.map { String(format: "%.2f", $0) } ?? "-1"),
-            ("seedingTimeLimit", minutes.map(String.init) ?? "-1")
-        ])
-    }
-
     func toggleSequentialDownload(ids: [String]) {
         postAction("torrents/toggleSequentialDownload", [("hashes", Self.hashParam(ids))])
     }
@@ -1093,13 +1122,6 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             for child in children { collectFeeds(child, into: &feeds) }
             return
         }
-        if let children = node["children"] as? [[Any]] {
-            // Older serializers can wrap children as [Any].
-            for child in children.compactMap({ $0 as? [String: Any] }) {
-                collectFeeds(child, into: &feeds)
-            }
-            return
-        }
         let articlesAny = node["articles"] as? [[String: Any]] ?? []
         let flag = { (key: String) -> Bool in
             (node[key] as? NSNumber)?.boolValue ?? false
@@ -1123,6 +1145,18 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         ))
     }
 
+    /// Only magnet links and http(s) URLs are handed to qBittorrent; search
+    /// results and RSS articles come from remote feeds, so anything else
+    /// (file://, custom schemes) must not reach `torrents/add`.
+    private static func isSupportedSource(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
+            return false
+        }
+        if scheme == "magnet" { return true }
+        return (scheme == "http" || scheme == "https") && url.host != nil
+    }
+
     private static func addParameters(options: AddOptions) -> [(String, String)] {
         [
             ("savepath", options.savePath),
@@ -1142,10 +1176,20 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         request.httpMethod = "POST"
         switch source {
         case .magnetOrURL(let text):
+            guard Self.isSupportedSource(text) else {
+                throw WebAPIError.invalidSource
+            }
             request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
             request.httpBody = Data(Self.form([("urls", text)] + Self.addParameters(options: options)).utf8)
         case .torrentFile(let url):
+            if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               size > Self.maxTorrentFileSize {
+                throw WebAPIError.fileTooLarge
+            }
             let data = try Data(contentsOf: url)
+            guard data.count <= Self.maxTorrentFileSize else {
+                throw WebAPIError.fileTooLarge
+            }
             let boundary = "DriftBoundary-\(UUID().uuidString)"
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             var body = Data()
@@ -1265,9 +1309,20 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         }
     }
 
-    private static func form(_ items: [(String, String)]) -> String {
-        var components = URLComponents()
-        components.queryItems = items.map { URLQueryItem(name: $0.0, value: $0.1) }
-        return components.percentEncodedQuery ?? ""
+    private static let maxTorrentFileSize = 100 * 1024 * 1024
+
+    /// `application/x-www-form-urlencoded` encoding. `URLComponents` leaves
+    /// `+` unescaped, but qB decodes form bodies with `+` → space, so values
+    /// like `C++` or magnet `dn=name+plus` would be corrupted.
+    static func form(_ items: [(String, String)]) -> String {
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        return items.map { name, value in
+            let encodedName = name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
+            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            return "\(encodedName)=\(encodedValue)"
+        }
+        .joined(separator: "&")
     }
 }

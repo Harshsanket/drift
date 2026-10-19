@@ -140,22 +140,35 @@ final class StatusItemController: NSObject {
         let up = model.globalUploadSpeed
         let stats = model.transferStats()
 
-        statusItem.button?.title = DesignSystem.Format.speed(down)
-        statsItem?.title = "↓ \(DesignSystem.Format.speed(down))   ↑ \(DesignSystem.Format.speed(up))"
+        let downText = DesignSystem.Format.speed(down)
+        if statusItem.button?.title != downText {
+            statusItem.button?.title = downText
+        }
+        let statsText = "↓ \(downText)   ↑ \(DesignSystem.Format.speed(up))"
+        if statsItem?.title != statsText {
+            statsItem?.title = statsText
+        }
         let percent = Int((stats.progress * 100).rounded())
+        let countsText: String
         if stats.downloading == 0 && stats.seeding == 0 {
-            countsItem?.title = model.torrents.isEmpty
+            countsText = model.torrents.isEmpty
                 ? "No torrents"
                 : "\(model.torrents.count) torrents · \(percent)% complete"
         } else {
-            countsItem?.title =
+            countsText =
                 "\(stats.downloading) downloading · \(stats.seeding) seeding · \(percent)% complete"
+        }
+        if countsItem?.title != countsText {
+            countsItem?.title = countsText
         }
         pauseItem?.isEnabled = model.canPauseAll
         resumeItem?.isEnabled = model.canResumeAll
-        connectionItem?.title = model.isConnected
+        let connectionText = model.isConnected
             ? "Connected — qBittorrent \(model.connectionState.version ?? "")"
             : "Connection…"
+        if connectionItem?.title != connectionText {
+            connectionItem?.title = connectionText
+        }
         // macOS 26 can hide the item at the system level ("Allow in Menu
         // Bar" toggle) while the app setting stays on — pick that up on
         // the next tick so polling cadence follows actual visibility.

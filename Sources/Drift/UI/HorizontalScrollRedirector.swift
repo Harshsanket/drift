@@ -2,10 +2,40 @@ import SwiftUI
 import AppKit
 import QuartzCore
 
+/// Verification-only diagnostics sink. Disabled unless the process is started
+/// with a `--test-*` verification hook or an explicit `--probe-log` opt-in, so
+/// a normal launch never writes torrent metadata to disk. The log lives in the
+/// per-user temporary directory (world-readable `/tmp` is off limits) with
+/// `0600` permissions and is capped at 2 MB between runs.
+enum ProbeLog {
+    static let isEnabled: Bool = {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--probe-log")
+            || arguments.contains(where: { $0.hasPrefix("--test-") })
+    }()
+
+    static let fileURL: URL? = {
+        guard isEnabled else { return nil }
+        let manager = FileManager.default
+        let url = manager.temporaryDirectory.appendingPathComponent("drift-probe.log")
+        let path = url.path
+        if let attributes = try? manager.attributesOfItem(atPath: path),
+           let size = attributes[.size] as? NSNumber,
+           size.intValue > 2_000_000 {
+            try? manager.removeItem(atPath: path)
+        }
+        if !manager.fileExists(atPath: path) {
+            manager.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+        }
+        try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        return url
+    }()
+}
+
 /// Appends a line to the shared probe log; used by the table probe and the
 /// view model to record interaction verification without console tooling.
 func writeProbeLog(_ message: String) {
-    let url = URL(fileURLWithPath: "/tmp/drift-probe.log")
+    guard let url = ProbeLog.fileURL else { return }
     let data = Data("\(message)\n".utf8)
     if let handle = try? FileHandle(forWritingTo: url) {
         defer { try? handle.close() }
@@ -49,6 +79,8 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
         private var testScrollTimer: Timer?
         private var loggedDelayedState = false
         private var configTimer: Timer?
+        private weak var observedWindow: NSWindow?
+        nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
         private var loggedRowHeightFix = false
         private var startedClickTest = false
         private weak var zebraView: TableZebraView?
@@ -63,33 +95,67 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window != nil, monitor == nil {
-                Self.active = self
-                monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] event in
-                    self?.handle(event) ?? event
-                }
-                // SwiftUI resizes the backing table (and resets `rowHeight`)
-                // without any layout callback we can observe, so re-apply the
-                // design geometry periodically; every step is guarded and a
-                // no-op once the table matches the design.
-                let timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
-                    self?.configureTable()
-                }
-                RunLoop.main.add(timer, forMode: .common)
-                configTimer = timer
-            } else if window == nil {
+            guard let window else {
                 if let monitor {
                     NSEvent.removeMonitor(monitor)
                     self.monitor = nil
                 }
+                if let occlusionObserver {
+                    NotificationCenter.default.removeObserver(occlusionObserver)
+                    self.occlusionObserver = nil
+                }
+                observedWindow = nil
                 configTimer?.invalidate()
                 configTimer = nil
+                return
             }
+            Self.active = self
+            if monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] event in
+                    self?.handle(event) ?? event
+                }
+            }
+            observeOcclusion(of: window)
+            updateConfigTimer()
         }
 
         override func layout() {
             super.layout()
             configureTable()
+        }
+
+        private func observeOcclusion(of window: NSWindow) {
+            guard observedWindow !== window else { return }
+            if let occlusionObserver {
+                NotificationCenter.default.removeObserver(occlusionObserver)
+            }
+            observedWindow = window
+            occlusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.updateConfigTimer() }
+            }
+        }
+
+        /// SwiftUI resizes the backing table (and resets `rowHeight`) without
+        /// any layout callback we can observe, so re-apply the design geometry
+        /// periodically — but only while the window is actually on screen.
+        /// The timer is purely a fallback: SwiftUI updates and the KVO re-pin
+        /// observers still configure the table while it is parked.
+        private func updateConfigTimer() {
+            guard let window, window.occlusionState.contains(.visible) else {
+                configTimer?.invalidate()
+                configTimer = nil
+                return
+            }
+            guard configTimer == nil else { return }
+            let timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+                self?.configureTable()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            configTimer = timer
         }
 
         /// Pins the NSTableView backing the SwiftUI Table to the design row

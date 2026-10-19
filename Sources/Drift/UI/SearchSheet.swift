@@ -57,6 +57,11 @@ struct SearchSheet: View {
             pattern = model.searchQuery
             if !pattern.isEmpty { model.startSearch(pattern: pattern) }
         }
+        .onDisappear {
+            // The sheet is dismissable without pressing Done (Esc, window
+            // close); stop polling so a hidden sheet cannot keep hitting qB.
+            if model.searchRunning { model.stopSearch() }
+        }
     }
 
     private var resultTable: some View {
@@ -105,7 +110,9 @@ struct SearchSheet: View {
                 NSPasteboard.general.setString(result.fileName, forType: .string)
             }
             Button("Open Page") {
-                if let url = URL(string: result.siteURL), url.scheme != nil {
+                if let url = URL(string: result.siteURL),
+                   let scheme = url.scheme?.lowercased(),
+                   scheme == "http" || scheme == "https" {
                     NSWorkspace.shared.open(url)
                 }
             }

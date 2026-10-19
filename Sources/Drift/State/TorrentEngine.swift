@@ -17,10 +17,6 @@ protocol TorrentEngine: Sendable {
     func queue(ids: [String], move: QueueMove)
     func setLocation(ids: [String], location: String)
     func rename(id: String, name: String)
-    func renameFile(id: String, fileIndex: Int, name: String)
-    func setDownloadLimit(ids: [String], bytesPerSecond: Int64)
-    func setUploadLimit(ids: [String], bytesPerSecond: Int64)
-    func setShareLimits(ids: [String], ratio: Double?, minutes: Int?)
     func toggleSequentialDownload(ids: [String])
     func toggleFirstLastPiecePriority(ids: [String])
     func setSuperSeeding(ids: [String], enabled: Bool)
@@ -86,10 +82,6 @@ extension TorrentEngine {
     func queue(ids: [String], move: QueueMove) {}
     func setLocation(ids: [String], location: String) {}
     func rename(id: String, name: String) {}
-    func renameFile(id: String, fileIndex: Int, name: String) {}
-    func setDownloadLimit(ids: [String], bytesPerSecond: Int64) {}
-    func setUploadLimit(ids: [String], bytesPerSecond: Int64) {}
-    func setShareLimits(ids: [String], ratio: Double?, minutes: Int?) {}
     func toggleSequentialDownload(ids: [String]) {}
     func toggleFirstLastPiecePriority(ids: [String]) {}
     func setSuperSeeding(ids: [String], enabled: Bool) {}

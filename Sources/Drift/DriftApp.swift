@@ -8,6 +8,7 @@ struct DriftApp: App {
         let model = ListViewModel()
         _model = State(initialValue: model)
         StatusItemController.shared.install(model: model)
+        UpdateChecker.shared.checkIfDueOnLaunch()
     }
 
     var body: some Scene {

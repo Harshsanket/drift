@@ -1,6 +1,15 @@
 import SwiftUI
 import AppKit
 
+/// The verification password override is honored only for `--test-*` runs so a
+/// stray environment value cannot replace the user's saved Keychain password
+/// during a normal launch.
+private func testPasswordOverride() -> String? {
+    let arguments = ProcessInfo.processInfo.arguments
+    guard arguments.contains(where: { $0.hasPrefix("--test-") }) else { return nil }
+    return ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+}
+
 struct ContentView: View {
     @Bindable var model: ListViewModel
     @Environment(\.openWindow) private var openWindow
@@ -292,7 +301,7 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-lifecycle") {
                 Task { @MainActor in
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     guard model.isConnected else {
                         writeProbeLog("[lifecycle] skipped (connect failed)")
@@ -317,7 +326,7 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[menubar] hook start")
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     guard model.isConnected else {
                         writeProbeLog("[menubar] skipped (connect failed)")
@@ -325,7 +334,7 @@ struct ContentView: View {
                     }
                     AppSettings.shared.showMenuBarItem = true
                     func sleepLineCount() -> Int {
-                        let text = (try? String(contentsOfFile: "/tmp/drift-probe.log")) ?? ""
+                        let text = (try? String(contentsOfFile: ProbeLog.fileURL?.path ?? "/dev/null")) ?? ""
                         return text.components(separatedBy: "sleep ").count - 1
                     }
                     let stats = model.transferStats()
@@ -421,7 +430,7 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[bench] mode=\(mode) start")
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     guard model.isConnected else {
                         writeProbeLog("[bench] skipped (connect failed)")
@@ -459,7 +468,7 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-connection") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     let settings = ConnectionSettings.shared
-                    let envPassword = ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                    let envPassword = testPasswordOverride()
                     let keychainPassword = Keychain.password(account: "password")
                     let source = envPassword != nil
                         ? "env(\(envPassword!.count))"
@@ -481,7 +490,7 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[rss] hook start")
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     for _ in 0..<80 {
                         if model.isConnected { break }
@@ -527,7 +536,7 @@ struct ContentView: View {
                 Task { @MainActor in
                     writeProbeLog("[search] hook start")
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     for _ in 0..<80 {
                         if model.isConnected { break }
@@ -557,7 +566,7 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--test-sync") {
                 Task {
                     await model.connectRealBackend(
-                        passwordOverride: ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
+                        passwordOverride: testPasswordOverride()
                     )
                     var last = ""
                     for _ in 0..<20 {

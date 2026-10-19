@@ -105,6 +105,7 @@ final class ListViewModel {
     private var connectedKey: String?
     private var connectInFlight = false
     private var pendingConnect = false
+    private var pendingPasswordOverride: String?
 
     var isConnected: Bool { connectionState.isConnected }
 
@@ -211,13 +212,19 @@ final class ListViewModel {
     func connectRealBackend(passwordOverride: String? = nil) async {
         guard !connectInFlight else {
             pendingConnect = true
+            if let passwordOverride { pendingPasswordOverride = passwordOverride }
             return
         }
         connectInFlight = true
         defer { connectInFlight = false }
+        var override = passwordOverride
         repeat {
             pendingConnect = false
-            await performConnect(passwordOverride: passwordOverride)
+            await performConnect(passwordOverride: override)
+            if pendingConnect {
+                override = pendingPasswordOverride ?? override
+                pendingPasswordOverride = nil
+            }
         } while pendingConnect
     }
 
@@ -429,21 +436,7 @@ final class ListViewModel {
         writeProbeLog("[details] set prio file=\(file.name) -> \(priority.rawValue)")
     }
 
-    // MARK: - Per-torrent limits & toggles (A1/A6)
-
-    func setTorrentDownloadLimit(_ ids: [String], bytesPerSecond: Int64) {
-        guard !ids.isEmpty, let engine, isConnected else { return }
-        engine.setDownloadLimit(ids: ids, bytesPerSecond: bytesPerSecond)
-        refresh()
-        writeProbeLog("[engine] setDownloadLimit ids=\(ids.count) limit=\(bytesPerSecond)")
-    }
-
-    func setTorrentUploadLimit(_ ids: [String], bytesPerSecond: Int64) {
-        guard !ids.isEmpty, let engine, isConnected else { return }
-        engine.setUploadLimit(ids: ids, bytesPerSecond: bytesPerSecond)
-        refresh()
-        writeProbeLog("[engine] setUploadLimit ids=\(ids.count) limit=\(bytesPerSecond)")
-    }
+    // MARK: - Per-torrent toggles (A1/A6)
 
     func toggleSequentialDownload(_ ids: [String]) {
         guard !ids.isEmpty, let engine, isConnected else { return }
@@ -494,7 +487,8 @@ final class ListViewModel {
     }
 
     func refresh() {
-        torrents = engine?.loadTorrents() ?? []
+        let updated = engine?.loadTorrents() ?? []
+        if updated != torrents { torrents = updated }
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
         }
@@ -798,7 +792,7 @@ final class ListViewModel {
                     try? await Task.sleep(for: .milliseconds(300))
                     continue
                 }
-                var feeds = await engine.rssFeeds()
+                let feeds = await engine.rssFeeds()
                 if let feeds {
                     rssFeeds = feeds
                     if let current = selectedRSSFeed,
@@ -936,11 +930,6 @@ final class ListViewModel {
     }
 
     // MARK: - Statistics dialog (A6)
-
-    func requestStatistics() {
-        showStatistics = true
-        writeProbeLog("[engine] statistics requested")
-    }
 
     func refreshStatistics() {
         statistics = engine?.serverStatistics()

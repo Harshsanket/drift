@@ -6,7 +6,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-LOG=/tmp/drift-probe.log
+LOG="${TMPDIR%/}/drift-probe.log"
 APP=.build/Drift.app
 export BENCH_RESULTS="${BENCH_RESULTS:-/tmp/drift-bench-results.md}"
 DUR="${BENCH_DUR:-600}"

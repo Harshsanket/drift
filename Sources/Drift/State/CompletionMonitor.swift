@@ -45,7 +45,7 @@ final class CompletionMonitor {
         guard active != lastBadge else { return }
         lastBadge = active
         let app = NSApplication.shared
-        guard app != nil, let dockTile = app.dockTile as NSDockTile? else { return }
+        guard let dockTile = app.dockTile as NSDockTile? else { return }
         dockTile.badgeLabel = active > 0 ? String(active) : nil
         writeProbeLog("[polish] dock badge -> \(active)")
     }
