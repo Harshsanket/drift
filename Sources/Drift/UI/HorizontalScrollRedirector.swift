@@ -48,6 +48,8 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
         private var alternatingObservation: NSKeyValueObservation?
         private var isReapplyingTableGeometry = false
         private var loggedRowHeightRepin = false
+        private var pendingRowMenuWork: DispatchWorkItem?
+        private var pendingRowMenuDown: NSPoint?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -67,7 +69,7 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
             }
             Self.active = self
             if monitor == nil {
-                monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] event in
+                monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .leftMouseUp]) { [weak self] event in
                     self?.handle(event) ?? event
                 }
             }
@@ -180,13 +182,13 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
             }
             if !startedClickTest,
                ProcessInfo.processInfo.arguments.contains("--test-click"),
-               table.numberOfRows > 2 {
+               table.numberOfRows > 0 {
                 startedClickTest = true
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(2))
-                    self?.simulateRowClick(row: 1)
+                    self?.simulateRowClick(row: 1, xFraction: 0.5)
                     try? await Task.sleep(for: .seconds(2))
-                    self?.simulateRowClick(row: 3)
+                    self?.simulateRowClick(row: 1, xFraction: 0.9)
                 }
             }
             // Keep the scrollable rows clear of the floating footer by
@@ -433,15 +435,21 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
         /// Verification-only: --test-click synthesizes a real click into the
         /// window's event pipeline so row-click side effects (selection and
         /// any scroll nudge) can be observed without physical input.
-        private func simulateRowClick(row: Int) {
+        /// `xFraction` picks where in the row the click lands (0.5 = name
+        /// text, 0.9 = empty space right of the text).
+        private func simulateRowClick(row: Int, xFraction: CGFloat = 0.5) {
             guard let window,
                   let scrollView = tableScrollView(),
                   let table = scrollView.documentView as? NSTableView,
                   row < table.numberOfRows
             else { return }
             let rowRect = table.rect(ofRow: row)
-            let windowPoint = table.convert(NSPoint(x: rowRect.midX, y: rowRect.midY), to: nil)
-            log("simClick row=\(row) windowPoint=\(windowPoint)"
+            let point = NSPoint(
+                x: rowRect.minX + rowRect.width * xFraction,
+                y: rowRect.midY
+            )
+            let windowPoint = table.convert(point, to: nil)
+            log("simClick row=\(row) xFrac=\(xFraction) windowPoint=\(windowPoint)"
                 + " clipBefore=\(scrollView.contentView.bounds)"
                 + " docBefore=\(table.frame)"
                 + " selected=\(table.selectedRowIndexes.map { $0 })")
@@ -465,14 +473,97 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                       let sv = self.tableScrollView(),
                       let t = sv.documentView as? NSTableView
                 else { return }
-                self.log("simClickAfter row=\(row)"
+                self.log("simClickAfter row=\(row) xFrac=\(xFraction)"
                     + " clipAfter=\(sv.contentView.bounds)"
                     + " docAfter=\(t.frame)"
                     + " selected=\(t.selectedRowIndexes.map { $0 })")
             }
         }
 
+        /// Half the double-click interval: long enough to leave the
+        /// double-click-to-details gesture intact, short enough that the
+        /// menu feels attached to the release of the click.
+        private var rowMenuPopDelay: TimeInterval {
+            max(0.15, min(0.30, NSEvent.doubleClickInterval * 0.5))
+        }
+
+        private func cancelRowMenuPop() {
+            pendingRowMenuWork?.cancel()
+            pendingRowMenuWork = nil
+            pendingRowMenuDown = nil
+        }
+
+        /// Schedules a synthesized secondary-click at the row click point so
+        /// SwiftUI shows exactly the same context menu it shows for
+        /// right-click — but for a plain left click, anywhere on the row.
+        private func scheduleRowMenuPop(at locationInWindow: NSPoint) {
+            cancelRowMenuPop()
+            pendingRowMenuDown = locationInWindow
+            guard let windowNumber = window?.windowNumber,
+                  let table = tableScrollView()?.documentView as? NSTableView else { return }
+            let row = table.row(at: table.convert(locationInWindow, from: nil))
+            guard row >= 0 else {
+                cancelRowMenuPop()
+                return
+            }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.pendingRowMenuWork = nil
+                self.pendingRowMenuDown = nil
+                let now = ProcessInfo.processInfo.systemUptime
+                let down = NSEvent.mouseEvent(
+                    with: .rightMouseDown, location: locationInWindow,
+                    modifierFlags: [], timestamp: now, windowNumber: windowNumber,
+                    context: nil, eventNumber: Int(now), clickCount: 1, pressure: 0
+                )
+                let up = NSEvent.mouseEvent(
+                    with: .rightMouseUp, location: locationInWindow,
+                    modifierFlags: [], timestamp: now + 0.05, windowNumber: windowNumber,
+                    context: nil, eventNumber: Int(now) + 1, clickCount: 1, pressure: 0
+                )
+                writeProbeLog("[probe] row menu pop left->right row=\(row)")
+                if let down, let up {
+                    NSApp.sendEvent(down)
+                    NSApp.sendEvent(up)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.logMenuWindowState()
+                }
+            }
+            pendingRowMenuWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + rowMenuPopDelay, execute: work)
+        }
+
+        /// Verification-only: logs whether a menu-owning window materialized
+        /// after the synthesized secondary click.
+        private func logMenuWindowState() {
+            let menuWindows = NSApp.windows.filter { $0.level == .popUpMenu }
+            log("menu windows=\(menuWindows.count)")
+        }
+
         private func handle(_ event: NSEvent) -> NSEvent? {
+            switch event.type {
+            case .leftMouseDown:
+                // Any further click cancels a pending row-menu pop (second
+                // click of a double-click, click elsewhere, multi-select …).
+                cancelRowMenuPop()
+                if event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
+                   event.clickCount == 1,
+                   event.windowNumber == window?.windowNumber {
+                    scheduleRowMenuPop(at: event.locationInWindow)
+                }
+            case .leftMouseUp:
+                // A drag (mouse moved well past the down point) also cancels.
+                if let pending = pendingRowMenuDown,
+                   hypot(pending.x - event.locationInWindow.x,
+                         pending.y - event.locationInWindow.y) > 12 {
+                    cancelRowMenuPop()
+                }
+            case .scrollWheel:
+                cancelRowMenuPop()
+            default:
+                break
+            }
             // Clicks must pass through instantly: any synchronous work here
             // (logging I/O, view-tree walks) delays the mouseDown delivered
             // to SwiftUI and its row-click gestures stop recognizing. All
