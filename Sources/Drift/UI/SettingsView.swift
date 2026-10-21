@@ -152,7 +152,10 @@ struct SettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Use cellular-dependent interfaces", isOn: $booster.allowCellular)
-                Text("Torrent mode: boosts torrents you are downloading by fetching still-missing pieces in parallel from HTTP web seeds (and an optional mirror URL), verifying each piece against the .torrent hashes before writing, then rechecking. Only torrents that report HTTP web seeds can be boosted — the torrent row menu shows which. Legacy direct-URL fetches are no longer offered; older rows stay visible in the Booster window.")
+                Text("Torrent mode: boosts torrents you are downloading by fetching still-missing pieces in parallel from HTTP web seeds (and an optional mirror URL), verifying each piece against the .torrent hashes before writing, then rechecking. Only torrents that report HTTP web seeds can be boosted — the torrent row menu shows which. Legacy direct-URL fetches are no longer offered; older rows stay visible in the Downloads window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(boosterEligibleHint)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -476,6 +479,15 @@ struct SettingsView: View {
 
     private func persistBooster() {
         booster.save()
+    }
+
+    private var boosterEligibleHint: String {
+        let boostable = DownloadCenter.shared.boostable.values.filter(\.boostable)
+        guard !boostable.isEmpty else {
+            return "Boostable now: none of the active torrents report HTTP web seeds."
+        }
+        return "Boostable now: \(boostable.count) active torrent(s) "
+            + "with web seeds (badge shown on their rows)."
     }
 
     private func patternList(_ text: String) -> [String] {

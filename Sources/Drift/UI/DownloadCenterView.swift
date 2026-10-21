@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Downloads window: torrent piece-boost tasks plus any legacy direct-download
-/// rows carried over from earlier sessions. The Connection Booster master
-/// switch lives at the bottom as a compact option with an explainer.
+/// rows carried over from earlier sessions. Connection Booster configuration
+/// lives entirely on the Settings page; this window only shows progress.
 struct DownloadCenterView: View {
     @Bindable private var center = DownloadCenter.shared
     @Environment(\.openWindow) private var openWindow
@@ -32,56 +32,10 @@ struct DownloadCenterView: View {
             }
 
             Spacer(minLength: 0)
-
-            boosterOption
         }
         .frame(width: 470, height: 400)
         .onAppear {
             WindowOpener.openDownloads = { openWindow(id: "downloads") }
-        }
-    }
-
-    /// Bottom option: the booster master switch with a one-paragraph
-    /// explainer, so the window stays download-first.
-    private var boosterOption: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Divider()
-                .padding(.horizontal, 14)
-            HStack(spacing: 8) {
-                Image(systemName: "bolt.horizontal")
-                    .foregroundStyle(.orange)
-                Text("Connection Booster")
-                    .font(.subheadline.weight(.medium))
-                Spacer()
-                Toggle("Enabled", isOn: Binding(
-                    get: { BoosterSettings.shared.enabled },
-                    set: { BoosterSettings.shared.enabled = $0; BoosterSettings.shared.save() }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 8)
-
-            Text(
-                "Speeds up torrents you are downloading: “Boost with Connection "
-                    + "Booster” in a torrent's context menu fetches still-missing "
-                    + "pieces from HTTP web seeds (and any mirror URL), verifies each "
-                    + "piece against the .torrent hashes, then rechecks. Streams, "
-                    + "slow-mode and cellular options live in Settings → Connection "
-                    + "Booster."
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14)
-
-            Text(eligibleHint)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
         }
     }
 
@@ -96,15 +50,6 @@ struct DownloadCenterView: View {
             .padding(.horizontal, 14)
             .padding(.top, 8)
         }
-    }
-
-    private var eligibleHint: String {
-        let boostable = center.boostable.values.filter(\.boostable)
-        guard !boostable.isEmpty else {
-            return "Boostable now: none of the active torrents report HTTP web seeds."
-        }
-        return "Boostable now: \(boostable.count) active torrent(s) "
-            + "with web seeds (badge shown on their rows)."
     }
 
     @ViewBuilder
