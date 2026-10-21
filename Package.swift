@@ -8,16 +8,20 @@ let package = Package(
     ],
     dependencies: [
         // GPL tunnel core: OpenVPN + WireGuard (in-process daemon).
-        // Vendored clone (gitignored) to avoid this environment's
-        // keychain-gated git fetch; switch back to .package(url:) later.
-        .package(path: "ThirdParty/partout")
+        // Pinned exact tag: reproducible release builds.
+        .package(url: "https://github.com/partout-io/partout.git", exact: "0.170.0"),
+        // Update plumbing: EdDSA-signed appcast + installer. Our SwiftUI
+        // surfaces drive the "Update now / Later" decision; Sparkle
+        // verifies EdDSA and performs the swap.
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0")
     ],
     targets: [
         .executableTarget(
             name: "Drift",
             dependencies: [
                 .product(name: "partout", package: "partout"),
-                .byName(name: "PartoutNative")
+                .byName(name: "PartoutNative"),
+                .product(name: "Sparkle", package: "Sparkle")
             ],
             path: "Sources/Drift",
             linkerSettings: [

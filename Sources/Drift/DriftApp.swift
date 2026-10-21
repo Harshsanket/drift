@@ -9,6 +9,23 @@ struct DriftApp: App {
         _model = State(initialValue: model)
         StatusItemController.shared.install(model: model)
         UpdateChecker.shared.checkIfDueOnLaunch()
+        // Supply-chain self-check: when a release manifest is embedded,
+        // verify the bundle at launch. Dev builds (no manifest) report
+        // `manifestMissing` without raising a fuss.
+        let integrity = IntegrityChecker.verifyRunningBundle()
+        switch integrity {
+        case .verified:
+            writeProbeLog("[integrity] bundle verified at launch")
+        case .manifestMissing:
+            writeProbeLog("[integrity] no release manifest (dev build)")
+        case .signatureMissing:
+            writeProbeLog("[integrity] manifest present but signature missing")
+        case .tampered(let detail):
+            writeProbeLog("[integrity] TAMPERED: \(detail)")
+        case .unavailable(let reason):
+            writeProbeLog("[integrity] verification unavailable: \(reason)")
+        }
+        UpdateService.shared.start()
     }
 
     var body: some Scene {

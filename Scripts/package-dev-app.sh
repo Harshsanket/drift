@@ -41,6 +41,15 @@ if [[ -d "$FRAMEWORK" ]]; then
     done
 fi
 
+# Sparkle (update chain): the app binary links it whenever the security
+# build is live; without the framework the app dies in dyld.
+SPARKLE=".build/out/Products/Debug/Sparkle.framework"
+[[ -d "$SPARKLE" ]] || SPARKLE=".build/out/Products/Release/Sparkle.framework"
+if [[ -d "$SPARKLE" ]]; then
+    cp -R "$SPARKLE" "$APP/Contents/Frameworks/"
+    codesign --force -s - "$APP/Contents/Frameworks/Sparkle.framework"
+fi
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

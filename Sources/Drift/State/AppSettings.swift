@@ -78,5 +78,25 @@ final class AppSettings {
         }
     }
 
+    /// Update feed (appcast.xml root URL). Empty = updates disabled: Sparkle
+    /// is never pointed anywhere until a signed feed exists.
+    var updateFeedURL: String =
+        UserDefaults.standard.string(forKey: "update.feedURL") ?? "" {
+        didSet {
+            UserDefaults.standard.set(updateFeedURL, forKey: "update.feedURL")
+            writeProbeLog("[settings] updateFeedURL set=\(!updateFeedURL.isEmpty)")
+        }
+    }
+
+    /// Auto-update behind the user's decision surface. Default ON per plan;
+    /// Sparkle still requires a valid EdDSA signature before anything runs.
+    var updateAuto: Bool =
+        UserDefaults.standard.object(forKey: "update.auto") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(updateAuto, forKey: "update.auto")
+            writeProbeLog("[settings] updateAuto=\(updateAuto ? "on" : "off")")
+        }
+    }
+
     var onMenuBarItemChanged: (@MainActor () -> Void)?
 }

@@ -1,0 +1,24 @@
+{
+  "originHash" : "63b37edd6e824ecb540cae13d31a2856e229853da24c6d9b1d5efa49b46040f8",
+  "pins" : [
+    {
+      "identity" : "partout",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/partout-io/partout.git",
+      "state" : {
+        "revision" : "056bf3c63ffc6c90b9f467b2687ee48a28c100ea",
+        "version" : "0.170.0"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle.git",
+      "state" : {
+        "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
+        "version" : "2.10.0"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -31,6 +31,10 @@ final class ControlDriver: @unchecked Sendable {
 
     func start(onStart: @escaping (Data, RootKit.IPv4Setup?) throws -> Void, onStop: @escaping () -> Void) throws {
         unlink(path)
+        // Socket inodes inherit the process umask at bind time; tighten it
+        // so there is no window where the inode is group/world open.
+        let oldMask = umask(0o077)
+        defer { umask(oldMask) }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw HelperError.ioctlFailed(socket_errno, "ctl socket") }
 
@@ -51,15 +55,15 @@ final class ControlDriver: @unchecked Sendable {
             close(fd)
             throw HelperError.ioctlFailed(0, "ctl bind")
         }
+        // bind() already created the socket inode with default (world
+        // readable) permissions; tighten it immediately. NOTE: never
+        // FileManager.createFile over the socket afterwards — that would
+        // replace the inode with a regular file and break path connects.
+        _ = chmod(path, 0o600)
         guard listen(fd, 8) == 0 else {
             close(fd)
             throw HelperError.ioctlFailed(0, "ctl listen")
         }
-        FileManager.default.createFile(
-            atPath: path,
-            contents: nil,
-            attributes: [.posixPermissions: NSNumber(value: 0o600)]
-        )
         listenFD = fd
         serving = true
 
@@ -69,6 +73,13 @@ final class ControlDriver: @unchecked Sendable {
                 var clientLength = socklen_t(0)
                 let client = accept(self.listenFD, nil, &clientLength)
                 guard client >= 0 else { break }
+                // Kernel-verified peer identity before any byte is read:
+                // unknown uids are dropped without touching their payload.
+                guard PeerGuard.accept(clientFD: client) else {
+                    HelperLog.shared.write("ctl: rejected foreign peer (uid mismatch)")
+                    close(client)
+                    continue
+                }
                 self.serve(client: client, onStart: onStart, onStop: onStop)
             }
         }

@@ -280,6 +280,12 @@ enum CtlClient {
             }
         }
         guard connected == 0 else { return nil }
+        // The control channel must terminate at a root process. Kernel
+        // credential check before a single byte of payload flows either
+        // way: a counterfeit socket owner is treated as unreachable.
+        var peerUID: uid_t = 0
+        var peerGID: gid_t = 0
+        guard getpeereid(fd, &peerUID, &peerGID) == 0, peerUID == 0 else { return nil }
         var payload = Data(line.utf8)
         payload.append(UInt8(0x0a))
         var sent = 0

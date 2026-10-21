@@ -172,6 +172,10 @@ struct SettingsView: View {
             }
 
             if !screenshotMode {
+            Section("Updates") {
+                updatesSection
+            }
+
             Section("Tunnel") {
                 tunnelSection
             }
@@ -210,6 +214,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $updatePromptVisible) {
+            UpdatePromptSheet()
+        }
         .defaultScrollAnchor(.top)
         .frame(width: 520, height: 540)
         .preferredColorScheme(app.appearance.colorScheme)
@@ -475,6 +482,67 @@ struct SettingsView: View {
         text.split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    @State private var integrityResult: IntegrityChecker.Result?
+    @State private var integrityCheckRan = false
+    @State private var updatePromptVisible = false
+
+    /// Sparkle-backed update configuration. Nothing here talks to network
+    /// until a feed URL exists and EdDSA verification is enabled by the
+    /// embedded key — updates stay passive otherwise.
+    private var updatesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Appcast feed URL (appcast.xml)", text: $app.updateFeedURL)
+                    .textFieldStyle(.roundedBorder)
+                Button("Check") {
+                    UpdateService.shared.check(userInitiated: true)
+                    updatePromptVisible = true
+                }
+                .disabled(app.updateFeedURL.isEmpty)
+                Button("Recheck integrity") {
+                    integrityResult = IntegrityChecker.verifyRunningBundle()
+                    integrityCheckRan = true
+                }
+                .help("Re-hash the running bundle against its release manifest")
+            }
+
+            Toggle("Install verified updates automatically", isOn: $app.updateAuto)
+
+            Text("""
+                Updates are only ever installed after an EdDSA signature \
+                check against the release key (Ed25519, identical to \
+                Sparkle's signing). With no feed configured the app checks \
+                nothing and reports that honestly.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if integrityCheckRan, let integrityResult {
+                HStack(spacing: 6) {
+                    switch integrityResult {
+                    case .verified:
+                        Label("Bundle verified", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                    case .manifestMissing:
+                        Label("Unverified (dev build — no release manifest)", systemImage: "file.badge.questionmark")
+                            .foregroundStyle(.secondary)
+                    case .signatureMissing:
+                        Label("Manifest found, detached signature missing", systemImage: "questionmark.key.fill")
+                            .foregroundStyle(.orange)
+                    case .tampered(let detail):
+                        Label("Verification failed: \(detail)", systemImage: "exclamationmark.shield.fill")
+                            .foregroundStyle(.red)
+                    case .unavailable:
+                        Label("Verification unavailable", systemImage: "exclamationmark.shield.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .font(.caption)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private var aboutSection: some View {

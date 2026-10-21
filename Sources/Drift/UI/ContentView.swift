@@ -124,6 +124,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.showStatistics) {
             StatisticsSheet(model: model)
         }
+        .sheet(isPresented: $model.showUpdateSheet) {
+            UpdatePromptSheet()
+        }
         .sheet(isPresented: $model.showSearchPane) {
             SearchSheet(model: model)
         }

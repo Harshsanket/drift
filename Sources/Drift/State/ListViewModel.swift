@@ -523,8 +523,20 @@ final class ListViewModel {
         }
         recordBoosterStats()
         feedBoostEligibility()
+        surfaceUpdateState()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
+    }
+
+    /// Splash-level update decision: when Sparkle reports a verified
+    /// pending update, lift the "Update now / Later" sheet once — and only
+    /// once per session — instead of interrupting on every refresh tick.
+    private var updatePromptShown = false
+    private func surfaceUpdateState() {
+        guard case .available = UpdateService.shared.state else { return }
+        guard !showUpdateSheet, !updatePromptShown else { return }
+        updatePromptShown = true
+        showUpdateSheet = true
     }
 
     /// Tells the Download Center which active torrents could be boosted,
@@ -833,6 +845,7 @@ final class ListViewModel {
     private(set) var statistics: ServerStatistics?
     private(set) var altSpeedsActive = false
     var showStatistics = false
+    var showUpdateSheet = false
 
     func toggleAltSpeeds() {
         guard let engine, isConnected else { return }

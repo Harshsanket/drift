@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import Drift
@@ -137,8 +138,126 @@ struct UIBoundaryTests {
     }
 }
 
+@Suite("Security: bundle integrity + update payload EdDSA")
+struct IntegrityCheckerTests {
+    private func throwawayKey() throws -> (private: Data, public: String) {
+        let key = Curve25519.Signing.PrivateKey()
+        return (key.rawRepresentation, key.publicKey.rawRepresentation.base64EncodedString())
+    }
+
+    @Test func manifestRoundTripVerifiesAndTamperDetected() throws {
+        let contents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("integrity-\(UUID().uuidString)")
+        let resources = contents.appendingPathComponent("Resources")
+        try FileManager.default.createDirectory(
+            at: resources, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: contents) }
+        try Data("iconbytes".utf8).write(to: resources.appendingPathComponent("AppIcon.icns"))
+        try Data("binary".utf8).write(to: contents.appendingPathComponent("fake-bin"))
+
+        let keys = try throwawayKey()
+        let manifest = try IntegrityChecker.buildManifest(contentsRoot: contents)
+        let manifestText = String(decoding: manifest, as: UTF8.self)
+        #expect(manifestText.contains("Resources/AppIcon.icns"))
+        #expect(manifestText.contains("fake-bin"))
+        let signature = try IntegrityChecker.sign(data: manifest, privateKeyRaw: keys.private)
+
+        // Raw primitive sanity: same-key verify accepts the exact bytes.
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: keys.public) ?? Data())
+        #expect(key.isValidSignature(signature, for: manifest))
+        #expect(!key.isValidSignature(signature, for: Data("other".utf8)))
+
+        try manifest.write(to: resources.appendingPathComponent("IntegrityManifest.json"))
+        try signature.base64EncodedString()
+            .write(to: resources.appendingPathComponent("IntegrityManifest.json.sig"),
+                   atomically: true, encoding: .utf8)
+
+        // Happy path through full manifest → signature → hashes, with the
+        // throwaway key supplied (the embedded key rules the real bundle).
+        let happy = IntegrityChecker.verify(contentsRoot: contents, keyOverride: keys.public)
+        guard happy == .verified else {
+            let manifestOnDisk = String(
+                decoding: (try? Data(contentsOf: resources.appendingPathComponent("IntegrityManifest.json"))) ?? Data(),
+                as: UTF8.self)
+            Issue.record("expected verified, got \(happy); base=\(contents.resolvingSymlinksInPath().path); manifestKeys=\(manifestOnDisk.prefix(220))")
+            return
+        }
+
+        // Byte-flip in a covered file: hash mismatch must be reported
+        // while the (still valid) signature does not paper over it.
+        try Data("iconbytesX".utf8).write(to: resources.appendingPathComponent("AppIcon.icns"))
+        let tampered = IntegrityChecker.verify(contentsRoot: contents, keyOverride: keys.public)
+        guard case .tampered(let detail) = tampered, detail.contains("AppIcon.icns") else {
+            Issue.record("expected hash-mismatch verdict, got \(tampered)")
+            return
+        }
+
+        // Unknown file smuggled into the bundle: coverage gap detection.
+        try Data("smuggled".utf8).write(to: resources.appendingPathComponent("extra.plist"))
+        let smuggled = IntegrityChecker.verify(contentsRoot: contents, keyOverride: keys.public)
+        guard case .tampered(let detail2) = smuggled, detail2.contains("not in manifest") else {
+            Issue.record("expected not-in-manifest verdict, got \(smuggled)")
+            return
+        }
+    }
+
+    @Test func updatePayloadVerifiesAndRejects() throws {
+        let keys = try throwawayKey()
+        let payload = Data(UUID().uuidString.utf8)
+        let signature = try IntegrityChecker.sign(data: payload, privateKeyRaw: keys.private)
+        let dir = FileManager.default.temporaryDirectory
+        let sigURL = dir.appendingPathComponent("payload-sig-\(UUID().uuidString).sig")
+        try signature.base64EncodedString().write(to: sigURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sigURL) }
+
+        #expect(IntegrityChecker.verifyUpdatePayload(payload: Data(), signatureFile: sigURL)
+            == .rejected("empty payload"))
+        // Raw primitive: correct-added signature is accepted by the local
+        // public key; wrong-payload bytes are rejected.
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: keys.public) ?? Data())
+        #expect(key.isValidSignature(signature, for: payload))
+        #expect(!key.isValidSignature(signature, for: Data("evil".utf8)))
+    }
+
+    @Test func embeddedKeyDecodesToValidEd25519() throws {
+        let raw = try #require(Data(base64Encoded: IntegrityChecker.edDSAPublicKeyBase64))
+        #expect((try? Curve25519.Signing.PublicKey(rawRepresentation: raw)) != nil)
+    }
+}
+
+@Suite("Security: control-channel peer checks")
+struct PeerGuardTests {
+    @Test func policyTrustsRootHelperAndConsoleUserOnly() {
+        let helper: uid_t = 0
+        let console: uid_t? = 501
+        #expect(PeerGuardPolicy.trusts(peerUID: 0, helperUID: helper, consoleOwner: console))
+        #expect(PeerGuardPolicy.trusts(peerUID: 501, helperUID: helper, consoleOwner: console))
+        #expect(!PeerGuardPolicy.trusts(peerUID: 502, helperUID: helper, consoleOwner: console))
+        #expect(!PeerGuardPolicy.trusts(peerUID: 502, helperUID: helper, consoleOwner: nil))
+        // Console owner nil (headless) → only root and the helper uid pass.
+        #expect(PeerGuardPolicy.trusts(peerUID: 0, helperUID: 0, consoleOwner: nil))
+        #expect(PeerGuardPolicy.trusts(peerUID: 0, helperUID: 501, consoleOwner: 501))
+    }
+
+    @Test func getpeereidResolvesLocalPairIdentity() throws {
+        // Same-process socket pair: peer creds must match our own uid, and
+        // our own uid must satisfy the policy when the helper is root.
+        var fds: [Int32] = [0, 0]
+        let created = socketpair(AF_UNIX, SOCK_STREAM, 0, &fds)
+        #expect(created == 0)
+        defer {
+            for fd in fds where fd >= 0 { close(fd) }
+        }
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        #expect(getpeereid(fds[1], &uid, &gid) == 0)
+        #expect(uid == getuid())
+    }
+}
+
 @Suite("Security: privacy leak-state mapping (no false 'safe' claims)")
 struct IPLeakProbeTests {
+
     @Test func desiredStatesMatchSpecConservatively() {
         // Full confirmation = protected.
         #expect(
