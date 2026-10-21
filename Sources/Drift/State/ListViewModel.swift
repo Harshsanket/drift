@@ -141,12 +141,23 @@ final class ListViewModel {
     /// Guard so verification hooks on `onAppear` run once even if capture
     /// tooling occludes the window and SwiftUI re-appears the view.
     var didRunShowDetailsHook = false
+    var didRunPeersHook = false
+    var didRunDownloadsHook = false
     private var lastAutoCollapse = Date.distantPast
     private(set) var windowVisible = true
 
     init(engine: (any TorrentEngine)? = nil, connectionState: ConnectionState = .disconnected) {
         self.engine = engine
         self.connectionState = connectionState
+        LeechGuard.shared.performBan = { [weak self] ips in
+            await self?.banIPs(ips)
+        }
+        LeechGuard.shared.serverBans = { [weak self] in
+            await self?.serverBannedIPs() ?? []
+        }
+        LeechGuard.shared.performUnban = { [weak self] ips in
+            await self?.removeBannedIPs(ips)
+        }
         AppLifecycle.shared.onSleep = { [weak self] in self?.handleSystemSleep() }
         AppLifecycle.shared.onWake = { [weak self] in self?.handleSystemWake() }
         AppLifecycle.shared.start()
@@ -229,6 +240,9 @@ final class ListViewModel {
     }
 
     private func performConnect(passwordOverride: String?) async {
+        writeProbeLog(
+            "[sync] connect attempt user=\(ConnectionSettings.shared.username) override=\(passwordOverride != nil)"
+        )
         let settings = ConnectionSettings.shared
         guard let url = WebAPIEngine.url(from: settings.baseUrl) else {
             connectionState = .failed(message: WebAPIError.invalidURL.message)
@@ -241,11 +255,13 @@ final class ListViewModel {
         if let passwordOverride {
             password = passwordOverride
         } else {
+            writeProbeLog("[sync] connect: keychain read start")
             // Off the main actor: a locked keychain (or a SecurityAgent prompt
             // on an ad-hoc build) must not freeze launch behind the dialog.
             password = await Task.detached(priority: .userInitiated) {
                 Keychain.password(account: "password") ?? ""
             }.value
+            writeProbeLog("[sync] connect: keychain read done len=\(password.count)")
         }
         let real = WebAPIEngine(
             base: url,
@@ -421,6 +437,7 @@ final class ListViewModel {
             detailsFetching = false
             if selectedIDs.contains(id) || detailsCache[id] != nil {
                 detailsCache[id] = fetched
+                LeechGuard.shared.review(details: fetched)
             }
         }
     }
@@ -487,6 +504,7 @@ final class ListViewModel {
     }
 
     func refresh() {
+        EngineHolder.shared.current = engine
         let updated = engine?.loadTorrents() ?? []
         if updated != torrents { torrents = updated }
         if let real = engine as? WebAPIEngine {
@@ -495,8 +513,42 @@ final class ListViewModel {
         CompletionMonitor.shared.observe(torrents: torrents)
         reloadOrganizers()
         statistics = engine?.serverStatistics()
+        if let stats = statistics {
+            AppStats.shared.recordServerTick(
+                receivedSession: stats.received,
+                sentSession: stats.sent,
+                downloadSpeed: stats.downloadSpeed,
+                uploadSpeed: stats.uploadSpeed
+            )
+        }
+        recordBoosterStats()
+        feedBoostEligibility()
         NotificationCenter.default.post(name: .driftRefreshed, object: self)
         scheduleDetailsRefresh()
+    }
+
+    /// Tells the Download Center which active torrents could be boosted,
+    /// polling web seeds only for entries whose snapshot has gone stale.
+    private func feedBoostEligibility() {
+        let downloading = torrents.filter { $0.status == .downloading || $0.status == .stalled }
+        guard !downloading.isEmpty else {
+            DownloadCenter.shared.boostable = [:]
+            return
+        }
+        let items = downloading.map { torrent in
+            (hash: torrent.id, name: torrent.name, savePath: torrent.savePath)
+        }
+        Task { await DownloadCenter.shared.noteDownloadingTorrents(items) }
+    }
+
+    /// Credits Booster direct downloads into the app-wide stats store on
+    /// each refresh tick.
+    private func recordBoosterStats() {
+        let total = DownloadCenter.shared.downloads.reduce(Int64(0)) { sum, download in
+            sum + download.writtenBytes
+        }
+        guard total > 0 else { return }
+        AppStats.shared.recordBoosterBytes(total: total)
     }
 
     // MARK: - Categories & tags (A2)
@@ -619,6 +671,34 @@ final class ListViewModel {
         detailsAction("removeWebSeeds") { engine, id in
             engine.removeWebSeeds(id: id, urls: urls)
         }
+    }
+
+    // MARK: - Peer management (B1)
+
+    func banPeers(_ rows: [PeerRow]) {
+        guard !rows.isEmpty, let engine, isConnected else { return }
+        let ips = rows.map(\.ip)
+        ips.forEach { ip in
+            writeProbeLog("[peers] ban ip=\(ip) (manual)")
+        }
+        Task {
+            await engine.banIPs(ips)
+            LeechGuard.shared.recordBans(ips, reason: "manual")
+        }
+    }
+
+    func serverBannedIPs() async -> [String] {
+        await engine?.bannedIPs() ?? []
+    }
+
+    private func banIPs(_ ips: [String]) async {
+        await engine?.banIPs(ips)
+    }
+
+    func removeBannedIPs(_ ips: [String]) async {
+        guard !ips.isEmpty, let engine else { return }
+        await engine.unbanIPs(ips)
+        LeechGuard.shared.recordBans(ips, reason: "unbanned")
     }
 
     func setWindowVisible(_ visible: Bool) {

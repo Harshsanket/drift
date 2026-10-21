@@ -30,6 +30,8 @@ struct ServerStatistics: Equatable {
     var sentAllTime: Int64
     var globalRatio: Double
     var freeSpaceOnDisk: Int64
+    var downloadSpeed: Int64 = 0
+    var uploadSpeed: Int64 = 0
 }
 
 /// Options for adding a magnet/torrent, mapped 1:1 onto `torrents/add`

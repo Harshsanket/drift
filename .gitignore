@@ -24,3 +24,6 @@ local-config/
 
 # Release artifacts (built, not committed)
 dist/
+
+# GPL tunnel core vendored clone (no-remote workaround; see Package.swift)
+ThirdParty/

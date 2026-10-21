@@ -60,14 +60,19 @@ struct TrackerRow: Equatable, Identifiable {
 }
 
 struct PeerRow: Equatable, Identifiable {
-    var id: String { "\(ip)|\(client)" }
+    var id: String { "\(ip):\(port)" }
     var ip: String
+    var port: Int
     var client: String
     var flags: String
     var connection: String
     var progress: Double
     var downSpeed: Int64
     var upSpeed: Int64
+    var country: String
+    var countryCode: String
+    var downloaded: Int64
+    var uploaded: Int64
 }
 
 struct WebSeedRow: Equatable, Identifiable {

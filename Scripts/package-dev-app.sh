@@ -16,10 +16,30 @@ if [[ ! -f "$BIN" ]]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/Drift"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
+# Tunnel helper: bundled alongside the app so HelperLauncher finds it
+# (Bundle.main executable dir lookup) without a .build path dependency.
+HELPER=".build/out/Products/Debug/drift-tunnel-helper"
+if [[ -f "$HELPER" ]]; then
+    cp "$HELPER" "$APP/Contents/MacOS/drift-tunnel-helper"
+else
+    echo "warning: tunnel helper missing — build the drift-tunnel-helper target first"
+fi
+
+# PartoutNative dynamic framework: both binaries link it; embed under
+# Frameworks and point rpath there before sealing.
+FRAMEWORK=".build/out/Products/Debug/PartoutNative.framework"
+if [[ -d "$FRAMEWORK" ]]; then
+    cp -R "$FRAMEWORK" "$APP/Contents/Frameworks/"
+    for EXE in "$APP/Contents/MacOS/Drift" "$APP/Contents/MacOS/drift-tunnel-helper"; do
+        [[ -f "$EXE" ]] || continue
+        install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXE" 2>/dev/null || true
+    done
+fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -59,6 +79,11 @@ echo "Packaged $APP"
 # Ad-hoc seal: an unsealed bundle (binary signature present, Info.plist
 # modified after) fails codesign validation, which makes macOS reject all
 # keychain operations from the app (-67030). Phase 14 replaces this with
-# Developer ID signing + notarization.
+# Developer ID signing + notarization. The embedded PartoutNative
+# framework is unsigned from SwiftPM's copy, so it must be sealed before
+# (or alongside) the app or the bundle seal refuses.
+if [[ -d "$APP/Contents/Frameworks/PartoutNative.framework" ]]; then
+    codesign --force -s - "$APP/Contents/Frameworks/PartoutNative.framework"
+fi
 codesign --force -s - --entitlements Scripts/entitlements-dev.plist "$APP"
 codesign -v "$APP"

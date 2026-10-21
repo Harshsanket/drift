@@ -388,6 +388,13 @@ private struct MoreOptionsMenu: View {
             .help("Transfer statistics")
             .disabled(!model.isConnected)
 
+            Button {
+                openWindow(id: "downloads")
+            } label: {
+                Label("Direct Downloads…", systemImage: "arrow.down.to.line.compact")
+            }
+            .help("Accelerated direct downloads")
+
             Divider()
 
             Button {

@@ -24,5 +24,10 @@ struct DriftApp: App {
         }
         .defaultSize(width: 520, height: 460)
         .windowResizability(.contentSize)
+
+        Window("Connection Booster", id: "downloads") {
+            DownloadCenterView()
+        }
+        .windowResizability(.contentSize)
     }
 }

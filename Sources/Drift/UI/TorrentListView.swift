@@ -473,6 +473,55 @@ private struct TorrentCellView: View {
     .customizationID("savePath")
 }
 
+/// Boost section of the torrent row context menu. Shows eligibility
+/// (qB-reported HTTP web seeds) and hands off to the Connection Booster.
+private struct TorrentBoostMenu: View {
+    let model: ListViewModel
+    let torrent: TorrentSummary
+
+    private var eligibility: BoostEligibility? {
+        DownloadCenter.shared.eligibility(for: torrent.id)
+    }
+
+    private var menuLabel: String {
+        if !BoosterSettings.shared.enabled { return "Boost with Connection Booster (off in settings)" }
+        if !model.isConnected { return "Boost with Connection Booster (no connection)" }
+        let status = DownloadCenter.shared.boosts
+            .first { $0.hash == torrent.id && $0.status != .failed && $0.status != .done }?
+            .status
+        if status != nil { return "Boosting…" }
+        switch eligibility {
+        case .some(let info) where info.boostable:
+            return "Boost with Connection Booster (\(info.webSeedCount) web seeds)"
+        default:
+            return "Boost with Connection Booster (not boostable)"
+        }
+    }
+
+    var body: some View {
+        Button {
+            let task = DownloadCenter.shared.startBoost(
+                id: torrent.id,
+                name: torrent.name,
+                savePath: NSString(string: torrent.savePath).expandingTildeInPath
+            )
+            WindowOpener.openDownloads?()
+            _ = task
+        } label: {
+            Label(menuLabel, systemImage: "bolt.horizontal")
+        }
+        .disabled(
+            !model.isConnected
+                || !BoosterSettings.shared.enabled
+                || !(eligibility?.boostable ?? false)
+        )
+        if let info = eligibility, info.boostable {
+            Text(info.seeds.prefix(2).joined(separator: "\n"))
+                .font(.caption)
+        }
+    }
+}
+
 private struct TorrentRowMenu: View {
     let model: ListViewModel
     let torrent: TorrentSummary
@@ -552,6 +601,10 @@ private struct TorrentRowMenu: View {
             Label("Open Destination Folder", systemImage: "arrow.up.right.folder")
         }
         .disabled(torrent.savePath.isEmpty)
+
+        Divider()
+
+        TorrentBoostMenu(model: model, torrent: torrent)
 
         Menu {
             Button {

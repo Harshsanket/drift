@@ -6,9 +6,19 @@ let package = Package(
     platforms: [
         .macOS("26.0")
     ],
+    dependencies: [
+        // GPL tunnel core: OpenVPN + WireGuard (in-process daemon).
+        // Vendored clone (gitignored) to avoid this environment's
+        // keychain-gated git fetch; switch back to .package(url:) later.
+        .package(path: "ThirdParty/partout")
+    ],
     targets: [
         .executableTarget(
             name: "Drift",
+            dependencies: [
+                .product(name: "partout", package: "partout"),
+                .byName(name: "PartoutNative")
+            ],
             path: "Sources/Drift",
             linkerSettings: [
                 // Embed Info.plist so Bundle.main has a bundle identifier
@@ -21,6 +31,21 @@ let package = Package(
                     "-Xlinker", "\(Context.packageDirectory)/Support/Info.plist",
                 ])
             ]
+        ),
+        // Root helper: owns the private utun + tunnel daemon + loopback
+        // relay. Elevated one-time via osascript (admin password prompt).
+        .executableTarget(
+            name: "drift-tunnel-helper",
+            dependencies: [
+                .product(name: "partout", package: "partout"),
+                .byName(name: "PartoutNative")
+            ],
+            path: "Sources/DriftTunnelHelper"
+        ),
+        .binaryTarget(
+            name: "PartoutNative",
+            url: "https://github.com/partout-io/partout/releases/download/0.170.0/PartoutNative.xcframework.zip",
+            checksum: "e6adfa95f5d4e247b68456b839aee85e4f5f644ad2e308af0e3cabe2d403236f"
         ),
         .testTarget(
             name: "DriftTests",

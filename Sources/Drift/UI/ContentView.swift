@@ -150,6 +150,10 @@ struct ContentView: View {
             if ProcessInfo.processInfo.arguments.contains("--show-settings") {
                 openWindow(id: "settings")
             }
+            // Verification-only: --show-downloads opens the downloads window.
+            if ProcessInfo.processInfo.arguments.contains("--show-downloads") {
+                openWindow(id: "downloads")
+            }
             // Verification-only: --test-settings opens the window, flips
             // appearance + destination (persisted), then restores defaults.
             if ProcessInfo.processInfo.arguments.contains("--test-settings") {
@@ -193,6 +197,133 @@ struct ContentView: View {
                     try? await Task.sleep(for: .seconds(1))
                     model.selectedIDs = [model.torrents[5].id]
                     writeProbeLog("[ui] test-select row5 done")
+                }
+            }
+            // Verification-only: --test-peers selects the first torrent,
+            // opens the Peers tab, then round-trips a harmless TEST-NET ban
+            // through the server's banned_IPs preference and unbans it.
+            if ProcessInfo.processInfo.arguments.contains("--test-peers"),
+               !model.didRunPeersHook {
+                writeProbeLog("[peers] hook v3 entered")
+                model.didRunPeersHook = true
+                Task { @MainActor in
+                    writeProbeLog("[peers] hook v3 task start")
+                    AppKit.NSApplication.shared.activate(ignoringOtherApps: true)
+                    writeProbeLog("[peers] hook v3 activated")
+                    AppKit.NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+                    writeProbeLog("[peers] hook v3 fronted")
+                    model.setWindowVisible(true)
+                    for _ in 0..<240 {
+                        if model.isConnected, let first = model.torrents.first,
+                           model.details(for: first.id) != nil { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    try? await Task.sleep(for: .seconds(3))
+                    model.selectedIDs = [model.torrents.first?.id ?? ""]
+                    model.startTorrents(Array(model.selectedIDs))
+                    model.toggleDetails()
+                    model.selectedTab = .peers
+                    writeProbeLog(
+                        "[peers] hook sel=\(model.selectedIDs.joined(separator: ","))"
+                            + " torrents=\(model.torrents.count) connected=\(model.isConnected)"
+                            + " vis=\(model.windowVisible)"
+                    )
+                    for step in 0..<10 {
+                        model.setWindowVisible(true)
+                        try? await Task.sleep(for: .seconds(2))
+                        if (model.selectedIDs.first?.isEmpty ?? true),
+                           let first = model.torrents.first {
+                            model.selectedIDs = [first.id]
+                            model.toggleDetails()
+                            model.selectedTab = .peers
+                        }
+                        let peers = model.selectedDetails?.peers
+                        writeProbeLog(
+                            "[peers] hook step=\(step) rows=\(peers?.count ?? -1)"
+                                + " sel=\(model.selectedIDs.joined(separator: ","))"
+                                + " torrents=\(model.torrents.count) vis=\(model.windowVisible)"
+                        )
+                        if let peers, !peers.isEmpty { break }
+                    }
+                    let probeRow = PeerRow(
+                        ip: "192.0.2.7", port: 6881, client: "", flags: "", connection: "",
+                        progress: 0, downSpeed: 0, upSpeed: 0, country: "", countryCode: "",
+                        downloaded: 0, uploaded: 0
+                    )
+                    model.banPeers([probeRow])
+                    try? await Task.sleep(for: .seconds(2))
+                    let bans = await model.serverBannedIPs()
+                    writeProbeLog("[peers] hook serverBans=\(bans.joined(separator: ","))")
+                    try? await Task.sleep(for: .seconds(1))
+                    await model.removeBannedIPs(["192.0.2.7"])
+                }
+            }
+            // Verification-only: --test-downloads drives one accelerated
+            // ranged fetch against a local static file server and checks
+            // the result lands complete in the Downloads folder.
+            if ProcessInfo.processInfo.arguments.contains("--test-downloads"),
+               !model.didRunDownloadsHook {
+                writeProbeLog("[downloads] hook entered")
+                model.didRunDownloadsHook = true
+                Task { @MainActor in
+                    for _ in 0..<120 {
+                        if model.isConnected { break }
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
+                    // The local range-server serves /tmp/drift-dl-static.
+                    let dir = URL(fileURLWithPath: "/tmp/drift-dl-static")
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    let seed = dir.appendingPathComponent("booster-3mb.bin")
+                    if !FileManager.default.fileExists(atPath: seed.path) {
+                        var bytes = [UInt8](repeating: 0, count: 30_000_000)
+                        var seedValue: UInt64 = 0x9e3779b97f4a7c15
+                        for index in bytes.indices {
+                            seedValue &+= 0x9e3779b97f4a7c15
+                            bytes[index] = UInt8(
+                                truncatingIfNeeded: (seedValue >> 24) & 0xff
+                            )
+                        }
+                        try? Data(bytes).write(to: seed)
+                        writeProbeLog("[downloads] seeded \(seed.path)")
+                    }
+                    openWindow(id: "downloads")
+                    let download = DownloadCenter.shared.add(
+                        urlString: "http://127.0.0.1:8765/booster-3mb.bin"
+                    )
+                    guard let download else {
+                        writeProbeLog("[downloads] hook add failed")
+                        return
+                    }
+                    download.start()
+                    for step in 0..<15 {
+                        try? await Task.sleep(for: .seconds(1))
+                        writeProbeLog(
+                            "[downloads] hook step=\(step)"
+                                + " status=\(download.status.rawValue)"
+                                + " fetches=\(download.completedFetches)"
+                                + " written=\(download.writtenBytes)/\(download.totalBytes)"
+                                + " chunks=\(download.completedChunkCount)/\(download.chunkCount)"
+                                + " speed=\(Int(download.liveSpeedBps))"
+                        )
+                        if download.status == .done || download.status == .failed {
+                            break
+                        }
+                    }
+                    let destination = URL(
+                        fileURLWithPath: download.destination
+                    ).appendingPathComponent(download.fileName)
+                    let observed = try? Data(contentsOf: destination)
+                    let seedReference = try? Data(contentsOf: seed)
+                    writeProbeLog(
+                        "[downloads] hook result={status=\(download.status.rawValue)"
+                            + " bytes=\(observed?.count ?? -1)"
+                            + " fullMatch=\(observed == seedReference)}"
+                    )
+                    if !ProcessInfo.processInfo.arguments.contains("--test-downloads-long") {
+                        DownloadCenter.shared.remove(download)
+                        try? FileManager.default.removeItem(at: seed)
+                        writeProbeLog("[downloads] hook cleanup done")
+                    }
                 }
             }
             if ProcessInfo.processInfo.arguments.contains("--test-add") {
@@ -564,6 +695,10 @@ struct ContentView: View {
             // Verification-only: --test-sync forces a real backend connection
             // (bypasses the prior-success opt-in) using DRIFT_TEST_PASSWORD.
             if ProcessInfo.processInfo.arguments.contains("--test-sync") {
+                writeProbeLog(
+                    "[sync] test-sync block override="
+                        + (testPasswordOverride() != nil ? "yes" : "no")
+                )
                 Task {
                     await model.connectRealBackend(
                         passwordOverride: testPasswordOverride()

@@ -9,6 +9,14 @@ struct StatisticsSheet: View {
             Text("Statistics")
                 .font(.headline)
 
+            appStatsSection
+
+            Divider()
+
+            Text("This server (qBittorrent)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             if let stats = model.statistics {
                 Grid(
                     alignment: .leading,
@@ -48,6 +56,9 @@ struct StatisticsSheet: View {
         }
         .disabled(!model.isConnected)
                 Spacer()
+                Button("Clear app stats") {
+                    AppStats.shared.resetAll()
+                }
                 Button("Close") {
                     dismiss()
                 }
@@ -56,6 +67,70 @@ struct StatisticsSheet: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+
+    /// Drift's own lifetime record: everything that moved through this app
+    /// (qBittorrent sessions + Booster direct downloads), independent of any
+    /// one server.
+    @ViewBuilder
+    private var appStatsSection: some View {
+        let stats = AppStats.shared
+        Grid(
+            alignment: .leading,
+            horizontalSpacing: DesignSystem.Spacing.lg,
+            verticalSpacing: DesignSystem.Spacing.xs
+        ) {
+            row("Fastest download speed") {
+                HStack(spacing: 6) {
+                    Text(DesignSystem.Format.speed(stats.peakDownloadBps))
+                    if let at = stats.peakDownloadAt {
+                        Text(at, format: .dateTime.month(.abbreviated).day().hour().minute())
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            row("Fastest upload speed") {
+                HStack(spacing: 6) {
+                    Text(DesignSystem.Format.speed(stats.peakUploadBps))
+                    if let at = stats.peakUploadAt {
+                        Text(at, format: .dateTime.month(.abbreviated).day().hour().minute())
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            row("Downloaded (Drift lifetime)") {
+                Text(DesignSystem.Format.size(stats.totalReceivedBytes))
+            }
+            row("Uploaded (Drift lifetime)") {
+                Text(DesignSystem.Format.size(stats.totalSentBytes))
+            }
+            if stats.boosterReceivedBytes > 0 {
+                row("Via Booster downloads") {
+                    Text(DesignSystem.Format.size(stats.boosterReceivedBytes))
+                }
+            }
+            row("Active transfer time") {
+                Text(Self.durationText(stats.transferSeconds))
+            }
+            if let first = stats.firstConnectedAt {
+                row("Tracking since") {
+                    Text(first, format: .dateTime.year().month(.abbreviated).day())
+                }
+            }
+        }
+    }
+
+    private static func durationText(_ seconds: TimeInterval) -> String {
+        var remaining = Int(seconds)
+        var parts: [String] = []
+        for (size, unit) in [(86400, "d"), (3600, "h"), (60, "m"), (1, "s")] {
+            let value = remaining / size
+            remaining %= size
+            if value > 0 || !parts.isEmpty { parts.append("\(value)\(unit)") }
+        }
+        return parts.isEmpty ? "0s" : parts.joined(separator: " ")
     }
 
     @ViewBuilder

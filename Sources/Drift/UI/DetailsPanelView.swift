@@ -92,7 +92,9 @@ struct DetailsPanelView: View {
         case .trackers:
             TrackersTabView(model: model, torrentID: model.selectedIDs.first ?? "", rows: details.trackers)
         case .peers:
-            PeersTabView(rows: details.peers)
+            PeersTabView(rows: details.peers) { rows in
+                model.banPeers(rows)
+            }
         case .sources:
             SourcesTabView(model: model, torrentID: model.selectedIDs.first ?? "", rows: details.webSeeds)
         case .files:

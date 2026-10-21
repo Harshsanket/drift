@@ -44,6 +44,12 @@ protocol TorrentEngine: Sendable {
     func editWebSeed(id: String, oldURL: String, newURL: String)
     func removeWebSeeds(id: String, urls: [String])
 
+    // Peer management (B1): bans persist server-side via the banned_IPs
+    // preference (stock qB has no per-peer ban endpoint).
+    func bannedIPs() async -> [String]
+    func banIPs(_ ips: [String]) async
+    func unbanIPs(_ ips: [String]) async
+
     // Global transfer controls (A6)
     func globalDownloadLimit() async -> Int64?
     func globalUploadLimit() async -> Int64?
@@ -108,6 +114,11 @@ extension TorrentEngine {
     func addWebSeeds(id: String, urls: [String]) {}
     func editWebSeed(id: String, oldURL: String, newURL: String) {}
     func removeWebSeeds(id: String, urls: [String]) {}
+
+    // Peer management (banned_IPs)
+    func bannedIPs() async -> [String] { [] }
+    func banIPs(_ ips: [String]) async {}
+    func unbanIPs(_ ips: [String]) async {}
 
     // Global transfer controls (A6)
     func globalDownloadLimit() async -> Int64? { nil }

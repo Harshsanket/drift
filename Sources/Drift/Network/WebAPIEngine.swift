@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import os
 
 enum WebAPIError: Error {
     case invalidURL
@@ -22,11 +24,34 @@ enum WebAPIError: Error {
     }
 }
 
+/// Holds the live URLSession so tunnel flips can atomically swap it while
+/// in-flight requests keep completing on the previous instance.
+final class SessionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: URLSession
+
+    init(configuration: URLSessionConfiguration) {
+        value = URLSession(configuration: configuration)
+    }
+
+    var current: URLSession {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func replace(_ session: URLSession) {
+        lock.lock()
+        defer { lock.unlock() }
+        value = session
+    }
+}
+
 final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     let base: URL
     private let username: String
     private let password: String
-    private let session: URLSession
+    private var sessionBox: SessionBox!
     private let lock = NSLock()
 
     private var rawTorrents: [String: [String: Any]] = [:]
@@ -51,7 +76,26 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 10
-        session = URLSession(configuration: configuration)
+        TunnelProxy.apply(to: configuration)
+        sessionBox = SessionBox(configuration: configuration)
+        // Route every future request through a rebuilt session whenever the
+        // tunnel's relay port or activity flips (start/stop/kill-switch).
+        TunnelProxy.onRebuild = { [weak self] in
+            Task { @MainActor in
+                self?.rebuildSession()
+            }
+        }
+    }
+
+    /// Rebuilds the URL session so its proxy settings reflect the current
+    /// tunnel state. Run only on the main actor (onRebuild also fires from
+    /// poll tasks; hopping keeps this race-free).
+    @MainActor private func rebuildSession() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 5
+        configuration.timeoutIntervalForResource = 10
+        TunnelProxy.apply(to: configuration)
+        sessionBox.replace(URLSession(configuration: configuration))
     }
 
     static func url(from string: String) -> URL? {
@@ -120,8 +164,15 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     }
 
     private var tier: SyncTier = .active
-    private var wakeRequested = false
-    private var sleepContinuation: CheckedContinuation<Void, Never>?
+    /// Sleep-loop state gets its own tiny unfair lock: the wake/cancel path
+    /// runs inside the concurrency runtime's task-cancellation machinery,
+    /// where touching the shared engine NSLock can deadlock against tasks
+    /// parked on that same lock (observed as a main-thread hang).
+    private struct SleepState {
+        var wakeRequested = false
+        var continuation: CheckedContinuation<Void, Never>?
+    }
+    private let sleepState = OSAllocatedUnfairLock<SleepState>(initialState: SleepState())
     private var loopAlive = false
     private var suspended = false
     private var syncGeneration = 0
@@ -151,21 +202,19 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     }
 
     func stopSync() {
-        lock.lock()
-        syncTask?.cancel()
-        syncTask = nil
-        lock.unlock()
+        lock.withLock { syncTask?.cancel() }
+        lock.withLock { syncTask = nil }
     }
 
     func setSyncTier(_ newTier: SyncTier) {
         let changed = lock.withLock { () -> Bool in
             guard tier != newTier else { return false }
             tier = newTier
-            wakeRequested = true
             return true
         }
         if changed {
             writeProbeLog("[sync] tier -> \(newTier.rawValue)")
+            sleepState.withLock { $0.wakeRequested = true }
             wakeSleepLoop()
             ensureSyncLoop()
         }
@@ -256,9 +305,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     private func sleepInterruptibly(milliseconds: Int) async throws {
         let duration = max(500, milliseconds)
-        let alreadyWoken = lock.withLock { () -> Bool in
-            guard wakeRequested else { return false }
-            wakeRequested = false
+        let alreadyWoken = sleepState.withLock { state -> Bool in
+            guard state.wakeRequested else { return false }
+            state.wakeRequested = false
             return true
         }
         if alreadyWoken { return }
@@ -281,36 +330,32 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     private func waitForWake() async {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let immediate = lock.withLock { () -> Bool in
+                let immediate = sleepState.withLock { state -> Bool in
                     guard !Task.isCancelled else { return true }
-                    if wakeRequested {
-                        wakeRequested = false
+                    if state.wakeRequested {
+                        state.wakeRequested = false
                         return true
                     }
-                    sleepContinuation = continuation
+                    state.continuation = continuation
                     return false
                 }
                 if immediate { continuation.resume() }
             }
         } onCancel: {
-            resumeSleepContinuation()
+            let continuation = sleepState.withLock { state -> CheckedContinuation<Void, Never>? in
+                let current = state.continuation
+                state.continuation = nil
+                return current
+            }
+            continuation?.resume()
         }
     }
 
     private func wakeSleepLoop() {
-        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-            wakeRequested = true
-            let current = sleepContinuation
-            sleepContinuation = nil
-            return current
-        }
-        continuation?.resume()
-    }
-
-    private func resumeSleepContinuation() {
-        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-            let current = sleepContinuation
-            sleepContinuation = nil
+        let continuation = sleepState.withLock { state -> CheckedContinuation<Void, Never>? in
+            state.wakeRequested = true
+            let current = state.continuation
+            state.continuation = nil
             return current
         }
         continuation?.resume()
@@ -567,12 +612,17 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
                         ?? (peer["peer_id_client"] as? String) ?? ""
                     return PeerRow(
                         ip: (peer["ip"] as? String) ?? "?",
+                        port: (peer["port"] as? NSNumber)?.intValue ?? 0,
                         client: client,
                         flags: (peer["flags"] as? String) ?? "",
                         connection: (peer["connection"] as? String) ?? "",
                         progress: (peer["progress"] as? NSNumber)?.doubleValue ?? 0,
                         downSpeed: (peer["dl_speed"] as? NSNumber)?.int64Value ?? 0,
-                        upSpeed: (peer["up_speed"] as? NSNumber)?.int64Value ?? 0
+                        upSpeed: (peer["up_speed"] as? NSNumber)?.int64Value ?? 0,
+                        country: (peer["country"] as? String) ?? "",
+                        countryCode: (peer["country_code"] as? String) ?? "",
+                        downloaded: (peer["downloaded"] as? NSNumber)?.int64Value ?? 0,
+                        uploaded: (peer["uploaded"] as? NSNumber)?.int64Value ?? 0
                     )
                 }
                 .sorted { $0.ip < $1.ip }
@@ -630,7 +680,44 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         try Self.requireOK(response)
         return data
     }
-    // MARK: - TorrentEngine mutations
+    // MARK: Torrent boost (piece-aligned acceleration)
+
+    /// Raw .torrent export for live torrents (metadata incl. piece hashes).
+    func torrentExportData(id: String) async throws -> Data {
+        try await fetchData(
+            path: "torrents/export",
+            query: [URLQueryItem(name: "hash", value: id)]
+        )
+    }
+
+    func webSeedURLs(id: String) async -> [String] {
+        await webSeedRows(hash: id).map(\.url)
+    }
+
+    /// 0/1/2 piece bitmap (include_pieces full snapshot; heavy call).
+    func pieceStates(id: String) async throws -> [Int] {
+        var components = URLComponents(
+            url: base.appendingPathComponent("api/v2/sync/maindata"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "rid", value: "0"),
+            URLQueryItem(name: "include_pieces", value: "true")
+        ]
+        guard let url = components?.url else { throw WebAPIError.invalidURL }
+        let data = try await send(URLRequest(url: url)).0
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let torrents = root["torrents"] as? [String: [String: Any]],
+              let mine = torrents[id] ?? torrents[id.uppercased()]
+        else {
+            writeProbeLog("[boost] pieceStates missing torrent \(id.prefix(8))")
+            return []
+        }
+        let raw = mine["pieces"] as? [NSNumber]
+        return raw?.map { $0.intValue } ?? []
+    }
+
+    // MARK - TorrentEngine mutations
 
     func addTorrent(source: AddSource, options: AddOptions) -> TorrentSummary {
         let summary = Self.placeholderSummary(for: source)
@@ -767,6 +854,68 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
         postAction("app/setPreferences", [("json", json)])
     }
 
+    // MARK: Peer management (banned_IPs preference: newline-separated string)
+
+    func bannedIPs() async -> [String] {
+        do {
+            let data = try await fetchData(path: "app/preferences", query: [])
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let raw = json["banned_IPs"] as? String
+            else {
+                writeProbeLog("[engine] banned_IPs missing from preferences shape")
+                return []
+            }
+            return Self.splitBannedIPs(raw)
+        } catch {
+            writeProbeLog("[engine] bannedIPs read failed: \(describe(error))")
+            return []
+        }
+    }
+
+    func banIPs(_ ips: [String]) async {
+        guard ips.contains(where: { !Self.trimmedIP($0).isEmpty }) else { return }
+        let merged = Self.mergeBannedIPs(existing: await bannedIPs(), new: ips)
+        await writeBannedIPs(merged)
+    }
+
+    func unbanIPs(_ ips: [String]) async {
+        let remaining = Self.removeBannedIPs(existing: await bannedIPs(), remove: ips)
+        await writeBannedIPs(remaining)
+    }
+
+    private func writeBannedIPs(_ ips: [String]) async {
+        applyPreferences(["banned_IPs": ips.joined(separator: "\n")])
+        let verb = ips.isEmpty ? "cleared" : "\(ips.count) entr\(ips.count == 1 ? "y" : "ies")"
+        writeProbeLog("[engine] banned_IPs \(verb)")
+    }
+
+    static func trimmedIP(_ ip: String) -> String {
+        ip.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func splitBannedIPs(_ raw: String) -> [String] {
+        raw.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { trimmedIP(String($0)) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Union preserving server order first, then new entries; deduped.
+    static func mergeBannedIPs(existing: [String], new: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for ip in existing + new {
+            let trimmed = trimmedIP(ip)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            out.append(trimmed)
+        }
+        return out
+    }
+
+    static func removeBannedIPs(existing: [String], remove: [String]) -> [String] {
+        let cut = Set(remove.map(trimmedIP).filter { !$0.isEmpty })
+        return existing.map(trimmedIP).filter { !$0.isEmpty && !cut.contains($0) }
+    }
+
     func serverStatistics() -> ServerStatistics? {
         lock.lock()
         let state = serverState
@@ -783,7 +932,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             receivedAllTime: number("alltime_dl"),
             sentAllTime: number("alltime_ul"),
             globalRatio: Double(ratioText) ?? 0,
-            freeSpaceOnDisk: number("free_space_on_disk")
+            freeSpaceOnDisk: number("free_space_on_disk"),
+            downloadSpeed: number("dl_info_speed"),
+            uploadSpeed: number("up_info_speed")
         )
     }
 
@@ -1300,8 +1451,12 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     // MARK: - Transport
 
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        // Snapshot the session; rebuildSession swaps it whenever the tunnel
+        // flips (start/stop/kill-switch). In-flight tasks keep using the
+        // session they were handed.
+        let live = sessionBox.current
         do {
-            return try await session.data(for: request)
+            return try await live.data(for: request)
         } catch let error as URLError {
             throw WebAPIError.network(error.localizedDescription)
         } catch {

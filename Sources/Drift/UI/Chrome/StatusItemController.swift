@@ -9,6 +9,7 @@ import SwiftUI
 enum WindowOpener {
     static var openMain: (() -> Void)?
     static var openSettings: (() -> Void)?
+    static var openDownloads: (() -> Void)?
 }
 
 extension Notification.Name {
@@ -74,6 +75,8 @@ final class StatusItemController: NSObject {
         pause.target = self
         let resume = NSMenuItem(title: "Resume All", action: #selector(resumeAllAction), keyEquivalent: "")
         resume.target = self
+        let downloads = NSMenuItem(title: "Direct Downloads…", action: #selector(openDownloadsAction), keyEquivalent: "d")
+        downloads.target = self
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ",")
         settings.target = self
         let quit = NSMenuItem(title: "Quit Drift", action: #selector(quitAction), keyEquivalent: "q")
@@ -86,6 +89,7 @@ final class StatusItemController: NSObject {
         menu.addItem(connection)
         menu.addItem(pause)
         menu.addItem(resume)
+        menu.addItem(downloads)
         menu.addItem(settings)
         menu.addItem(.separator())
         menu.addItem(quit)
@@ -197,6 +201,15 @@ final class StatusItemController: NSObject {
             action()
         } else if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
             writeProbeLog("[menubar] settings action unavailable")
+        }
+    }
+
+    @objc private func openDownloadsAction() {
+        NSApp.activate()
+        if let action = WindowOpener.openDownloads {
+            action()
+        } else {
+            writeProbeLog("[menubar] downloads action unavailable")
         }
     }
 

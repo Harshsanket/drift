@@ -2,12 +2,19 @@ import SwiftUI
 
 struct PeersTabView: View {
     let rows: [PeerRow]
+    var ban: ([PeerRow]) -> Void = { _ in }
+
+    @State private var selection = Set<String>()
+
+    private var selectedRows: [PeerRow] {
+        rows.filter { selection.contains($0.id) }
+    }
 
     var body: some View {
         if rows.isEmpty {
             DetailsEmptyState(title: "No peers connected", systemImage: "person.2.slash")
         } else {
-            Table(rows) {
+            Table(rows, selection: $selection) {
                 TableColumn("IP") { row in
                     Text(row.ip)
                         .monospacedDigit()
@@ -20,7 +27,15 @@ struct PeersTabView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .width(min: 120, ideal: 150)
+                .width(min: 110, ideal: 140)
+
+                TableColumn("Country") { row in
+                    Text(row.country.isEmpty
+                         ? "—"
+                         : row.countryCode.isEmpty ? row.country : row.countryCode)
+                        .foregroundStyle(.secondary)
+                }
+                .width(70)
 
                 TableColumn("Flags") { row in
                     Text(row.flags)
@@ -33,7 +48,7 @@ struct PeersTabView: View {
                     Text(DesignSystem.Format.percent(row.progress))
                         .monospacedDigit()
                 }
-                .width(80)
+                .width(75)
 
                 TableColumn("DL") { row in
                     Text(DesignSystem.Format.speed(row.downSpeed))
@@ -42,7 +57,7 @@ struct PeersTabView: View {
                             row.downSpeed > 0 ? DesignSystem.Palette.downloading : .secondary
                         )
                 }
-                .width(90)
+                .width(85)
 
                 TableColumn("UP") { row in
                     Text(DesignSystem.Format.speed(row.upSpeed))
@@ -51,16 +66,23 @@ struct PeersTabView: View {
                             row.upSpeed > 0 ? DesignSystem.Palette.seeding : .secondary
                         )
                 }
-                .width(90)
+                .width(85)
 
                 TableColumn("Connection") { row in
                     Text(row.connection)
                         .foregroundStyle(.secondary)
                 }
-                .width(80)
+                .width(70)
             }
             .scrollContentBackground(.hidden)
             .frame(height: 190)
+            .contextMenu {
+                Button("Ban Permanently", systemImage: "person.fill.xmark") {
+                    ban(selectedRows)
+                }
+                .disabled(selectedRows.isEmpty)
+            }
+            .help("Right-click to ban selected peers (server-side permanent IP ban)")
         }
     }
 }
