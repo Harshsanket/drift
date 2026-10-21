@@ -28,9 +28,6 @@ struct TorrentListView: View {
         // but SwiftUI's pattern used to leak into the empty area below the last
         // row at the wrong pitch. Disable it and let the probe own striping.
         .alternatingRowBackgrounds(.disabled)
-        .simultaneousGesture(TapGesture().onEnded {
-            model.collapseDetailsFromOutsideClick()
-        })
         .background {
             HorizontalScrollRedirector(model: model)
         }
@@ -541,6 +538,14 @@ private struct TorrentRowMenu: View {
     }
 
     var body: some View {
+        Button {
+            model.openDetails()
+        } label: {
+            Label("Show Details", systemImage: "rectangle.bottomthird.inset.filled")
+        }
+
+        Divider()
+
         Button {
             model.startTorrents(targets)
         } label: {

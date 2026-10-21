@@ -256,12 +256,23 @@ final class ListViewModel {
             password = passwordOverride
         } else {
             writeProbeLog("[sync] connect: keychain read start")
-            // Off the main actor: a locked keychain (or a SecurityAgent prompt
-            // on an ad-hoc build) must not freeze launch behind the dialog.
-            password = await Task.detached(priority: .userInitiated) {
-                Keychain.password(account: "password") ?? ""
-            }.value
-            writeProbeLog("[sync] connect: keychain read done len=\(password.count)")
+            // Dev verification hook: a launch-arg password bypasses the
+            // Keychain entirely (ad-hoc re-signs invalidate CLI-created
+            // items' ACLs, making probe runs flaky).
+            if let dev = ProcessInfo.processInfo.arguments.first(
+                where: { $0.hasPrefix("--dev-password=") }),
+               let value = dev.split(separator: "=", maxSplits: 1).last {
+                password = String(value)
+                writeProbeLog("[sync] connect: dev override password used")
+            } else {
+                // Off the main actor: a locked keychain (or a SecurityAgent
+                // prompt on an ad-hoc build) must not freeze launch behind
+                // the dialog.
+                password = await Task.detached(priority: .userInitiated) {
+                    Keychain.password(account: "password") ?? ""
+                }.value
+                writeProbeLog("[sync] connect: keychain read done len=\(password.count)")
+            }
         }
         let real = WebAPIEngine(
             base: url,
@@ -338,6 +349,14 @@ final class ListViewModel {
         }
         setDetailsExpanded(detailsCollapsed)
         writeProbeLog("[model] toggleDetails -> collapsed=\(detailsCollapsed)")
+    }
+
+    /// Menu entry: opens the details panel for the selection without
+    /// toggling (ignored when already expanded).
+    func openDetails() {
+        guard detailsCollapsed else { return }
+        setDetailsExpanded(true)
+        writeProbeLog("[model] openDetails from row menu")
     }
 
     func collapseDetailsFromOutsideClick() {

@@ -48,8 +48,11 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
         private var alternatingObservation: NSKeyValueObservation?
         private var isReapplyingTableGeometry = false
         private var loggedRowHeightRepin = false
-        private var pendingRowMenuWork: DispatchWorkItem?
-        private var pendingRowMenuDown: NSPoint?
+        /// Row-click menu pop state (see scheduleRowMenuPop).
+        private var rowMenuPopWork: DispatchWorkItem?
+        private var rowMenuDownPoint: NSPoint?
+        private var rowMenuDownRow = -1
+        private var lastRowMenuPopAt = Date.distantPast
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -186,9 +189,9 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                 startedClickTest = true
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(2))
-                    self?.simulateRowClick(row: 1, xFraction: 0.5)
+                    self?.simulateRowClick(row: 0, xFraction: 0.5)
                     try? await Task.sleep(for: .seconds(2))
-                    self?.simulateRowClick(row: 1, xFraction: 0.9)
+                    self?.simulateRowClick(row: 0, xFraction: 0.9)
                 }
             }
             // Keep the scrollable rows clear of the floating footer by
@@ -449,6 +452,11 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                 y: rowRect.midY
             )
             let windowPoint = table.convert(point, to: nil)
+            // Menus anchor to the physical cursor, not the synthesized
+            // event location: warp the cursor to the row point first.
+            let screenPoint = window.convertToScreen(
+                CGRect(origin: windowPoint, size: CGSize(width: 1, height: 1))).origin
+            CGWarpMouseCursorPosition(screenPoint)
             log("simClick row=\(row) xFrac=\(xFraction) windowPoint=\(windowPoint)"
                 + " clipBefore=\(scrollView.contentView.bounds)"
                 + " docBefore=\(table.frame)"
@@ -466,7 +474,7 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                 ) {
                     NSApp.postEvent(up, atStart: false)
                 }
-                window.sendEvent(down)
+                NSApp.sendEvent(down)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 guard let self,
@@ -480,83 +488,140 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
             }
         }
 
-        /// Half the double-click interval: long enough to leave the
-        /// double-click-to-details gesture intact, short enough that the
-        /// menu feels attached to the release of the click.
-        private var rowMenuPopDelay: TimeInterval {
-            max(0.15, min(0.30, NSEvent.doubleClickInterval * 0.5))
-        }
-
         private func cancelRowMenuPop() {
-            pendingRowMenuWork?.cancel()
-            pendingRowMenuWork = nil
-            pendingRowMenuDown = nil
+            rowMenuPopWork?.cancel()
+            rowMenuPopWork = nil
+            rowMenuDownPoint = nil
+            rowMenuDownRow = -1
         }
 
-        /// Schedules a synthesized secondary-click at the row click point so
-        /// SwiftUI shows exactly the same context menu it shows for
-        /// right-click — but for a plain left click, anywhere on the row.
-        private func scheduleRowMenuPop(at locationInWindow: NSPoint) {
-            cancelRowMenuPop()
-            pendingRowMenuDown = locationInWindow
-            guard let windowNumber = window?.windowNumber,
-                  let table = tableScrollView()?.documentView as? NSTableView else { return }
-            let row = table.row(at: table.convert(locationInWindow, from: nil))
-            guard row >= 0 else {
-                cancelRowMenuPop()
+        /// This fires only if the click stays a plain single click: any
+        /// second press (a double-click), drag, or scroll cancels it first.
+        /// The pop itself synthesizes a secondary click at the row point so
+        /// SwiftUI shows exactly the menu a right-click would.
+        private func scheduleRowMenuPop() {
+            // Cancel only the previous pending pop: the fresh down-point
+            // (set by the click handler just before this call) must stay.
+            rowMenuPopWork?.cancel()
+            rowMenuPopWork = nil
+            guard let downPoint = rowMenuDownPoint else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else {
+                    writeProbeLog("[probe] row menu pop died (probe gone)")
+                    return
+                }
+                self.log("row menu pop firing"
+                    + (self.rowMenuDownPoint == nil ? " (state gone)" : ""))
+                guard let point = self.rowMenuDownPoint else {
+                    self.log("row menu pop died (state gone)")
+                    return
+                }
+                self.rowMenuPopWork = nil
+                self.rowMenuDownPoint = nil
+                self.rowMenuDownRow = -1
+                self.popRowMenuIfClear(at: point)
+            }
+            rowMenuPopWork = work
+            // Full double-click interval: a genuine double-click always
+            // cancels this before it can fire.
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + NSEvent.doubleClickInterval + 0.05,
+                execute: work
+            )
+        }
+
+        /// Pops the row's context menu by synthesizing a secondary click at
+        /// the row point.
+        ///
+        /// Guards keep this from fighting its own menu:
+        /// - never while a popUpMenu-level window (the menu itself) exists;
+        /// - never within a short grace window after the last pop, so the
+        ///   click that *dismisses* the menu does not immediately reopen it.
+        private func popRowMenuIfClear(at locationInWindow: NSPoint) {
+            // Context menus surface as NSMenuWindowManagerWindow at
+            // .popUpMenu level. Other windows (SPRoundedWindow glass
+            // backing) share the level, so they are filtered by class.
+            let menuWindows = NSApp.windows
+                .filter {
+                    $0.level == .popUpMenu
+                        && String(describing: type(of: $0)).contains("Menu")
+                }
+                .map { "\($0.className)#\($0.windowNumber)" }
+            let menuSession = !menuWindows.isEmpty
+            let withinGrace = Date().timeIntervalSince(lastRowMenuPopAt) < 0.6
+            if menuSession || withinGrace {
+                log("row menu pop suppressed"
+                    + (menuSession ? " (menu session active)" : " (grace window)")
+                    + (menuSession ? " windows=[\(menuWindows.joined(separator: ", "))]" : ""))
                 return
             }
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingRowMenuWork = nil
-                self.pendingRowMenuDown = nil
-                let now = ProcessInfo.processInfo.systemUptime
-                let down = NSEvent.mouseEvent(
-                    with: .rightMouseDown, location: locationInWindow,
-                    modifierFlags: [], timestamp: now, windowNumber: windowNumber,
-                    context: nil, eventNumber: Int(now), clickCount: 1, pressure: 0
-                )
-                let up = NSEvent.mouseEvent(
-                    with: .rightMouseUp, location: locationInWindow,
-                    modifierFlags: [], timestamp: now + 0.05, windowNumber: windowNumber,
-                    context: nil, eventNumber: Int(now) + 1, clickCount: 1, pressure: 0
-                )
-                writeProbeLog("[probe] row menu pop left->right row=\(row)")
-                if let down, let up {
-                    NSApp.sendEvent(down)
-                    NSApp.sendEvent(up)
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    self?.logMenuWindowState()
-                }
+            guard let window else {
+                log("row menu pop skipped (probe window nil)")
+                return
             }
-            pendingRowMenuWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + rowMenuPopDelay, execute: work)
+            let windowNumber = window.windowNumber
+            let now = ProcessInfo.processInfo.systemUptime
+            let down = NSEvent.mouseEvent(
+                with: .rightMouseDown, location: locationInWindow,
+                modifierFlags: [], timestamp: now, windowNumber: windowNumber,
+                context: nil, eventNumber: Int(now), clickCount: 1, pressure: 0
+            )
+            let up = NSEvent.mouseEvent(
+                with: .rightMouseUp, location: locationInWindow,
+                modifierFlags: [], timestamp: now + 0.05, windowNumber: windowNumber,
+                context: nil, eventNumber: Int(now) + 1, clickCount: 1, pressure: 0
+            )
+            lastRowMenuPopAt = Date()
+            log("row menu pop left->right")
+            guard let down, let up else {
+                log("row menu pop event creation failed")
+                return
+            }
+            // Back-to-back synchronous delivery: SwiftUI materializes the
+            // context menu on this down/up pair only when they land in the
+            // same run-loop turn (a delayed up yields menu windows=0).
+            NSApp.sendEvent(down)
+            NSApp.sendEvent(up)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.logMenuWindowState()
+            }
         }
 
         /// Verification-only: logs whether a menu-owning window materialized
         /// after the synthesized secondary click.
         private func logMenuWindowState() {
-            let menuWindows = NSApp.windows.filter { $0.level == .popUpMenu }
+            let menuWindows = NSApp.windows.filter {
+                $0.level == .popUpMenu
+                    && String(describing: type(of: $0)).contains("Menu")
+            }
             log("menu windows=\(menuWindows.count)")
         }
 
         private func handle(_ event: NSEvent) -> NSEvent? {
             switch event.type {
             case .leftMouseDown:
-                // Any further click cancels a pending row-menu pop (second
-                // click of a double-click, click elsewhere, multi-select …).
+                // Any other press cancels a pending pop (second click of a
+                // double-click, click elsewhere, multi-select clicks …).
                 cancelRowMenuPop()
                 if event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
                    event.clickCount == 1,
-                   event.windowNumber == window?.windowNumber {
-                    scheduleRowMenuPop(at: event.locationInWindow)
+                   event.windowNumber == window?.windowNumber,
+                   let table = tableScrollView()?.documentView as? NSTableView {
+                    let point = table.convert(event.locationInWindow, from: nil)
+                    let row = table.row(at: point)
+                    if row >= 0 {
+                        rowMenuDownPoint = event.locationInWindow
+                        rowMenuDownRow = row
+                        scheduleRowMenuPop()
+                        log("row menu scheduled row=\(row)"
+                            + " dci=\(NSEvent.doubleClickInterval)")
+                    }
                 }
             case .leftMouseUp:
-                // A drag (mouse moved well past the down point) also cancels.
-                if let pending = pendingRowMenuDown,
-                   hypot(pending.x - event.locationInWindow.x,
-                         pending.y - event.locationInWindow.y) > 12 {
+                // A drag (pointer moved well past the down point) cancels.
+                if let downPoint = rowMenuDownPoint,
+                   hypot(downPoint.x - event.locationInWindow.x,
+                         downPoint.y - event.locationInWindow.y) > 12 {
                     cancelRowMenuPop()
                 }
             case .scrollWheel:
@@ -576,6 +641,13 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                     let clip = sv.contentView
                     let tablePoint = t.convert(location, from: nil)
                     let row = t.row(at: tablePoint)
+                    // Blank table area (below the rows / header/hover zone):
+                    // original outside-click collapse behavior, relocated
+                    // from the table's TapGesture so row clicks can carry
+                    // their own menu without collapsing the details glass.
+                    if row < 0 {
+                        self.model?.collapseDetailsFromOutsideClick()
+                    }
                     self.log("mouseDown row=\(row) clipBefore=\(clip.bounds.origin)"
                         + " rh=\(t.rowHeight) autoH=\(t.usesAutomaticRowHeights)"
                         + " enabled=\(t.isEnabled) shs=\(t.selectionHighlightStyle.rawValue)"
@@ -602,6 +674,7 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                 }
                 return event
             }
+            guard event.type == .scrollWheel else { return event }
             guard !event.hasPreciseScrollingDeltas else { return event }
             guard abs(event.scrollingDeltaY) > 0.01 else { return event }
             guard let window else { return event }
