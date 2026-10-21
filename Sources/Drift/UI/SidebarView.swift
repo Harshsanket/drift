@@ -90,27 +90,58 @@ struct SidebarView: View {
                     }
                 }
             }
-            if AppSettings.shared.rssEnabled {
-                Section {
-                    HStack {
-                        Text("Feeds")
-                        Spacer()
-                        Image(systemName: "dot.radiowaves.up.forward")
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background {
-                        if model.showRSSPane {
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(Color.accentColor.opacity(0.28))
+            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled {
+                Section("Tools") {
+                    if AppSettings.shared.rssEnabled {
+                        Label {
+                            HStack {
+                                Text("Feeds")
+                                Spacer()
+                            }
+                        } icon: {
+                            Image(systemName: "dot.radiowaves.up.forward")
+                                .foregroundStyle(Color.accentColor)
                         }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background {
+                            if model.showRSSPane {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color.accentColor.opacity(0.28))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if model.showStatsPane { model.toggleStatsPane(false) }
+                            model.toggleRSSPane(!model.showRSSPane)
+                        }
+                        .help("RSS feeds from the server")
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        model.toggleRSSPane(!model.showRSSPane)
+                    if AppSettings.shared.statsEnabled {
+                        Label {
+                            HStack {
+                                Text("Statistics")
+                                Spacer()
+                            }
+                        } icon: {
+                            Image(systemName: "chart.bar.doc.horizontal")
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background {
+                            if model.showStatsPane {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color.accentColor.opacity(0.28))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if model.showRSSPane { model.toggleRSSPane(false) }
+                            model.toggleStatsPane(!model.showStatsPane)
+                        }
+                        .help("Transfer statistics")
                     }
-                    .help("RSS feeds from the server")
                 }
             }
         }
@@ -119,6 +150,11 @@ struct SidebarView: View {
         .onChange(of: AppSettings.shared.rssEnabled) { _, enabled in
             if !enabled, model.showRSSPane {
                 model.toggleRSSPane(false)
+            }
+        }
+        .onChange(of: AppSettings.shared.statsEnabled) { _, enabled in
+            if !enabled, model.showStatsPane {
+                model.toggleStatsPane(false)
             }
         }
         .simultaneousGesture(TapGesture().onEnded {

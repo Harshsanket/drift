@@ -864,7 +864,7 @@ final class ListViewModel {
 
     private(set) var statistics: ServerStatistics?
     private(set) var altSpeedsActive = false
-    var showStatistics = false
+    var showStatsPane = false
     var showUpdateSheet = false
 
     func toggleAltSpeeds() {
@@ -896,6 +896,13 @@ final class ListViewModel {
         selectedIDs.removeAll()
         if enabled { loadRSS() }
         writeProbeLog("[engine] rss pane \(enabled)")
+    }
+
+    func toggleStatsPane(_ enabled: Bool) {
+        showStatsPane = enabled
+        selectedIDs.removeAll()
+        if enabled { refreshStatistics() }
+        writeProbeLog("[engine] stats pane \(enabled)")
     }
 
     func loadRSS() {

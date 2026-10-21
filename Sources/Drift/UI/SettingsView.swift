@@ -56,7 +56,8 @@ struct SettingsView: View {
                 Toggle("Show menu bar status item", isOn: $app.showMenuBarItem)
                 Toggle("Notify when a download completes", isOn: $app.completionNotifications)
                 Toggle("RSS Feeds", isOn: $app.rssEnabled)
-                Text("Adds a Feeds section to the sidebar listing your server's RSS feeds.")
+                Toggle("Statistics", isOn: $app.statsEnabled)
+                Text("RSS adds a Feeds section to the sidebar; Statistics opens a full transfer-stats page. Turning either off hides it from the sidebar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

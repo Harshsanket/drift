@@ -88,6 +88,16 @@ final class AppSettings {
         }
     }
 
+    /// Sidebar Statistics page on/off (Settings → General). Disabling also
+    /// closes the pane if it happens to be open.
+    var statsEnabled: Bool =
+        UserDefaults.standard.object(forKey: "stats.sidebarEnabled") as? Bool ?? true {
+        didSet {
+            guard oldValue != statsEnabled else { return }
+            UserDefaults.standard.set(statsEnabled, forKey: "stats.sidebarEnabled")
+        }
+    }
+
     /// Update feed (appcast.xml root URL). Empty = updates disabled: Sparkle
     /// is never pointed anywhere until a signed feed exists.
     var updateFeedURL: String =

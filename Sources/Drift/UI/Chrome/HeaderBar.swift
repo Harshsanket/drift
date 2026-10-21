@@ -434,11 +434,11 @@ private struct MoreOptionsMenu: View {
             .disabled(!model.isConnected)
 
             Button {
-                model.showStatistics = true
+                model.toggleStatsPane(!model.showStatsPane)
             } label: {
-                Label("Statistics…", systemImage: "chart.bar.doc.horizontal")
+                Label("Statistics", systemImage: "chart.bar.doc.horizontal")
             }
-            .help("Transfer statistics")
+            .help(model.showStatsPane ? "Close statistics page" : "Open statistics page")
             .disabled(!model.isConnected)
 
             Button {
