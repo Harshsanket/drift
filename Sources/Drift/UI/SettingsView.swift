@@ -158,12 +158,6 @@ struct SettingsView: View {
                 Text(boosterEligibleHint)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                HStack {
-                    Spacer()
-                    Button("Open Downloads…") {
-                        openWindow(id: "downloads")
-                    }
-                }
                 .onChange(of: booster.mode) { persistBooster() }
                 .onChange(of: booster.fixedStreams) { persistBooster() }
                 .onChange(of: booster.slowModeMbps) { persistBooster() }
