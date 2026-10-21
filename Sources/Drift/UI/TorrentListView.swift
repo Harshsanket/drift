@@ -207,6 +207,12 @@ private extension View {
             Text(torrent.name)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            if DownloadCenter.shared.eligibility(for: torrent.id)?.boostable == true {
+                Image(systemName: "bolt.horizontal.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption2)
+                    .help("Boostable — this torrent reports HTTP web seeds (use its context menu)")
+            }
         }
         .tableCell(.leading, model, torrent)
     }

@@ -60,12 +60,17 @@ final class DownloadCenter {
     }
 
     /// ListViewModel feeds downloading torrents here every refresh tick so
-    /// the UI can show which torrents are boostable.
+    /// the UI (row badge + context menu) can show which torrents are
+    /// boostable. The map mirrors the active download set: entries are
+    /// pruned when a torrent stops, and cleared while the booster is off.
     func noteDownloadingTorrents(_ torrents: [(hash: String, name: String, savePath: String)]) async {
-        guard BoosterSettings.shared.enabled, !torrents.isEmpty else {
-            if torrents.isEmpty { boostable = [:] }
+        guard BoosterSettings.shared.enabled else {
+            boostable = [:]
             return
         }
+        let seen = Set(torrents.map(\.hash))
+        boostable = boostable.filter { seen.contains($0.key) }
+        guard !torrents.isEmpty else { return }
         guard let real = EngineHolder.shared.current as? WebAPIEngine else { return }
         for torrent in torrents {
             let current = boostable[torrent.hash]
