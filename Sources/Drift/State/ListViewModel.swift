@@ -849,14 +849,15 @@ final class ListViewModel {
         writeProbeLog("[engine] removal cancelled")
     }
 
-    func confirmRemoval() {
+    func confirmRemoval(deleteFiles: Bool = false) {
         guard let ids = pendingRemoval, !ids.isEmpty, let engine, isConnected else { return }
-        engine.remove(ids: Array(ids), deleteFiles: false)
+        engine.remove(ids: Array(ids), deleteFiles: deleteFiles)
         selectedIDs.subtract(ids)
         for id in ids { detailsCache.removeValue(forKey: id) }
         pendingRemoval = nil
         refresh()
-        writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))")
+        writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))"
+            + (deleteFiles ? " (files deleted)" : ""))
     }
 
     // MARK: - Global transfer controls (A6)

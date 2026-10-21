@@ -93,6 +93,9 @@ struct TorrentListView: View {
             Button("Remove", role: .destructive) {
                 model.confirmRemoval()
             }
+            Button("Remove + Delete Files", role: .destructive) {
+                model.confirmRemoval(deleteFiles: true)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(removalMessage)
