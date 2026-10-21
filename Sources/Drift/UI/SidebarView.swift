@@ -90,9 +90,37 @@ struct SidebarView: View {
                     }
                 }
             }
+            if AppSettings.shared.rssEnabled {
+                Section {
+                    HStack {
+                        Text("Feeds")
+                        Spacer()
+                        Image(systemName: "dot.radiowaves.up.forward")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background {
+                        if model.showRSSPane {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(Color.accentColor.opacity(0.28))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        model.toggleRSSPane(!model.showRSSPane)
+                    }
+                    .help("RSS feeds from the server")
+                }
+            }
         }
         .listStyle(.sidebar)
         .focusable(false)
+        .onChange(of: AppSettings.shared.rssEnabled) { _, enabled in
+            if !enabled, model.showRSSPane {
+                model.toggleRSSPane(false)
+            }
+        }
         .simultaneousGesture(TapGesture().onEnded {
             model.collapseDetailsFromOutsideClick()
         })

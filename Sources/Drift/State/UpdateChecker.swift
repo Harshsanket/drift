@@ -16,6 +16,19 @@ final class UpdateChecker {
 
     private(set) var checking = false
     private(set) var status: Status = .idle
+    /// Set when a launch-time check finds a newer release; the main window
+    /// presents its update prompt from this.
+    var promptVisible = false
+
+    /// Opt-outable launch check. Defaults on: the About card exposes the
+    /// toggle, and turning it off stops all launch-time calls to GitHub.
+    var checkOnLaunchEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(checkOnLaunchEnabled, forKey: "updates.autoCheckOnLaunch")
+        }
+    }
+
+    private var launchCheckRan = false
 
     var appVersion: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
@@ -24,6 +37,28 @@ final class UpdateChecker {
 
     private static let latestReleaseURL =
         URL(string: "https://api.github.com/repos/Harshsanket/drift/releases/latest")!
+
+    init() {
+        checkOnLaunchEnabled = UserDefaults.standard.object(
+            forKey: "updates.autoCheckOnLaunch") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "updates.autoCheckOnLaunch")
+    }
+
+    /// Once per session: when the launch-check toggle is on, ask GitHub for
+    /// the latest release and surface the prompt if a newer one exists.
+    func checkOnLaunch() async {
+        guard !launchCheckRan else { return }
+        launchCheckRan = true
+        guard checkOnLaunchEnabled else {
+            writeProbeLog("[update] launch check disabled")
+            return
+        }
+        await check()
+        if case .available = status {
+            promptVisible = true
+        }
+    }
 
     /// Manual-only: update checks never run automatically. The only
     /// sanctioned launch-time updater is `UpdateService` (Sparkle), which

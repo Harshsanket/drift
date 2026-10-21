@@ -16,6 +16,7 @@ struct ContentView: View {
     @FocusState private var filterFocused: Bool
     @State private var sidebarWidth: CGFloat = SidebarWidthPreference.defaultValue
     @State private var detailTopInset: CGFloat = DesignSystem.Metrics.titlebarBand
+    @State private var updateChecker = UpdateChecker.shared
 
     private var footerRadius: CGFloat {
         model.detailsCollapsed ? DesignSystem.Metrics.statusBarHeight / 2 : 16
@@ -65,15 +66,7 @@ struct ContentView: View {
                                 .frame(height: headerOverflow)
                                 .allowsHitTesting(false)
                         }
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .onAppear { detailTopInset = proxy.safeAreaInsets.top }
-                                    .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
-                                        detailTopInset = newInset
-                                    }
-                            }
-                        }
+                        .background(DetailInsetProbe { detailTopInset = $0 })
                         .background(Color(nsColor: .windowBackgroundColor))
                         .overlay(alignment: .bottom) { footer }
                 } else {
@@ -85,15 +78,7 @@ struct ContentView: View {
                         }
                         // Outside the safeAreaInset so it measures only the
                         // system inset, not our own overflow padding.
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .onAppear { detailTopInset = proxy.safeAreaInsets.top }
-                                    .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
-                                        detailTopInset = newInset
-                                    }
-                            }
-                        }
+                        .background(DetailInsetProbe { detailTopInset = $0 })
                         // The window is transparent so the sidebar can show
                         // the desktop; the detail column must stay solid.
                         .background(Color(nsColor: .windowBackgroundColor))
@@ -126,6 +111,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.showUpdateSheet) {
             UpdatePromptSheet()
+        }
+        .sheet(isPresented: $updateChecker.promptVisible) {
+            GitHubUpdatePrompt()
         }
         .sheet(isPresented: $model.showSearchPane) {
             SearchSheet(model: model)
@@ -759,6 +747,21 @@ struct ContentView: View {
             .frame(height: DesignSystem.Metrics.headerHeight)
         }
         .frame(height: DesignSystem.Metrics.headerHeight)
+    }
+
+    /// Reports the detail column's system top safe-area inset (titlebar band
+    /// in-window, 0 fullscreen) so the padded header can overflow past it.
+    private struct DetailInsetProbe: View {
+        let report: (CGFloat) -> Void
+        var body: some View {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { report(proxy.safeAreaInsets.top) }
+                    .onChange(of: proxy.safeAreaInsets.top) { _, newInset in
+                        report(newInset)
+                    }
+            }
+        }
     }
 
     /// Floating footer. It is anchored to the detail column's safe area, so the

@@ -25,6 +25,11 @@ struct DriftApp: App {
             writeProbeLog("[integrity] verification unavailable: \(reason)")
         }
         UpdateService.shared.start()
+        // GitHub launch check, gated by the About-card toggle: prompts are
+        // always user-decided (Download and Update / Later), never silent.
+        Task { @MainActor in
+            await UpdateChecker.shared.checkOnLaunch()
+        }
     }
 
     var body: some Scene {

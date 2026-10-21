@@ -78,6 +78,16 @@ final class AppSettings {
         }
     }
 
+    /// Sidebar RSS Feeds page on/off (Settings → General). Disabling also
+    /// closes the pane if it happens to be open.
+    var rssEnabled: Bool =
+        UserDefaults.standard.object(forKey: "rss.sidebarEnabled") as? Bool ?? true {
+        didSet {
+            guard oldValue != rssEnabled else { return }
+            UserDefaults.standard.set(rssEnabled, forKey: "rss.sidebarEnabled")
+        }
+    }
+
     /// Update feed (appcast.xml root URL). Empty = updates disabled: Sparkle
     /// is never pointed anywhere until a signed feed exists.
     var updateFeedURL: String =

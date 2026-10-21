@@ -8,7 +8,7 @@ struct SettingsView: View {
     @Bindable private var leech = LeechGuard.shared
     @Bindable private var booster = BoosterSettings.shared
     @Bindable private var tunnel = TunnelService.shared
-    private var updates = UpdateChecker.shared
+    @State private var updates = UpdateChecker.shared
     @Environment(\.openWindow) private var openWindow
 
     @State private var baseUrl = ""
@@ -55,6 +55,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Toggle("Show menu bar status item", isOn: $app.showMenuBarItem)
                 Toggle("Notify when a download completes", isOn: $app.completionNotifications)
+                Toggle("RSS Feeds", isOn: $app.rssEnabled)
+                Text("Adds a Feeds section to the sidebar listing your server's RSS feeds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Connection") {
@@ -607,6 +611,9 @@ struct SettingsView: View {
                 .disabled(updates.checking)
                 Spacer()
             }
+
+            Toggle("Check for updates on launch", isOn: $updates.checkOnLaunchEnabled)
+                .font(.caption)
 
             updateStatusRow
         }
