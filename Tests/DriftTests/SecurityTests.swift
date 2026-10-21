@@ -225,6 +225,78 @@ struct IntegrityCheckerTests {
     }
 }
 
+@Suite("Security: parser fuzz (seeded, reproducible)")
+struct FuzzTests {
+    /// xorshift64* — deterministic across runs so a crash is always
+    /// reproducible from the printed seed.
+    final class Rng {
+        private var state: UInt64
+        let seed: UInt64
+        init(seed: UInt64) {
+            self.seed = seed == 0 ? 0x9E3779B97F4A7C15 : seed
+            state = self.seed
+        }
+        func next() -> UInt64 {
+            state &*= 0x9E3779B97F4A7C15
+            state = (state << 25) ^ (state >> 39) ^ state
+            state &*= 0x7FEB352D
+            return state
+        }
+        func byte() -> UInt8 { UInt8(truncatingIfNeeded: next()) }
+        func blob(_ length: Int) -> Data {
+            Data((0..<length).map { _ in byte() })
+        }
+    }
+
+    @Test func bencodeSurvivesRandomBlobs() {
+        for seed in [1, 42, 0xDEAD, 0xBEEF, 0x1234_5678] {
+            let rng = Rng(seed: UInt64(seed))
+            for _ in 0..<400 {
+                let blob = rng.blob(Int(rng.next() % 4096))
+                // Must never crash/trap; error results are fine.
+                _ = try? Bencode.decode(blob)
+            }
+        }
+    }
+
+    @Test func bencodeSurvivesValidTorrentTruncations() throws {
+        // A plausible torrent-ish bencode blob, truncated at every offset:
+        // decoders must fail cleanly, never trap.
+        let inner = Data(
+            ("d8:announce25:http://127.0.0.1/announce4:infod6:lengthi4096e"
+             + "4:name4:fuzz12:piece lengthi16384e6:pieces40:"
+             + String(repeating: "A", count: 40) + "eee").utf8)
+        for cut in 0..<inner.count {
+            _ = try? Bencode.decode(inner[..<cut])
+        }
+        // And byte-flips at sampled offsets.
+        var rng = Rng(seed: 77)
+        for _ in 0..<200 {
+            var mutated = inner
+            let index = Int(rng.next() % UInt64(mutated.count))
+            mutated[index] = rng.byte()
+            _ = try? Bencode.decode(mutated)
+        }
+    }
+
+    @Test func urlParserSurvivesHostileStrings() {
+        let rng = Rng(seed: 0x5EED)
+        let pieces = ["http", "https", "://", "127.0.0.1", "8765", "/", "..", "%00",
+                      "//", " ", "\u{7f}", "\u{07}", "javascript:", "data:", "file:",
+                      "[::1]", "user:pass@", "@", "#", "?", " ", "..%2f", "0x00"]
+        for _ in 0..<600 {
+            let count = Int(rng.next() % 12) + 1
+            let joined = (0..<count).map { _ in pieces[Int(rng.next() % UInt64(pieces.count))] }
+                .joined()
+            // Never trap; nil is an acceptable outcome.
+            if let url = WebAPIEngine.url(from: joined) {
+                // If accepted, only http(s) may ever survive.
+                #expect(url.scheme == "http" || url.scheme == "https")
+            }
+        }
+    }
+}
+
 @Suite("Security: control-channel peer checks")
 struct PeerGuardTests {
     @Test func policyTrustsRootHelperAndConsoleUserOnly() {
