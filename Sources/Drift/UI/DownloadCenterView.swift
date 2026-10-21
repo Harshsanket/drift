@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Connection Booster window: torrent piece-boost tasks (primary) plus any
-/// legacy direct-download rows carried over from earlier sessions.
+/// Downloads window: torrent piece-boost tasks plus any legacy direct-download
+/// rows carried over from earlier sessions. The Connection Booster master
+/// switch lives at the bottom as a compact option with an explainer.
 struct DownloadCenterView: View {
     @Bindable private var center = DownloadCenter.shared
     @Environment(\.openWindow) private var openWindow
@@ -9,35 +10,30 @@ struct DownloadCenterView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "bolt.horizontal")
+                Image(systemName: "tray.and.arrow.down")
                     .foregroundStyle(.orange)
-                Text("Connection Booster")
+                Text("Downloads")
                     .font(.headline)
-                Toggle("Enabled", isOn: Binding(
-                    get: { BoosterSettings.shared.enabled },
-                    set: { BoosterSettings.shared.enabled = $0; BoosterSettings.shared.save() }
-                ))
-                .toggleStyle(.switch)
-                .controlSize(.small)
                 Spacer()
             }
             .padding([.horizontal, .top], 14)
             .padding(.bottom, 2)
 
-            if !BoosterSettings.shared.enabled {
-                Text("Booster is off; torrents download normally via the swarm.")
+            if center.boosts.isEmpty && center.downloads.isEmpty {
+                Text("No boosts or downloads right now.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
-                    .padding(.bottom, 4)
+                    .padding(.top, 6)
+            } else {
+                boostSection
+                legacySection
             }
 
-            boostSection
-
-            legacySection
-
             Spacer(minLength: 0)
+
+            boosterOption
         }
         .frame(width: 470, height: 400)
         .onAppear {
@@ -45,30 +41,53 @@ struct DownloadCenterView: View {
         }
     }
 
-    @ViewBuilder
-    private var boostSection: some View {
-        if center.boosts.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Torrent boosts")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(
-                    "Use the torrent's context menu → “Boost with Connection Booster”. "
-                    + "Boosted torrents get missing pieces fetched from HTTP web seeds "
-                    + "(and any mirror URL), verified against the .torrent hashes, then rechecked."
-                )
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                Text(
-                    eligibleHint
-                )
+    /// Bottom option: the booster master switch with a one-paragraph
+    /// explainer, so the window stays download-first.
+    private var boosterOption: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Divider()
+                .padding(.horizontal, 14)
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.horizontal")
+                    .foregroundStyle(.orange)
+                Text("Connection Booster")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Toggle("Enabled", isOn: Binding(
+                    get: { BoosterSettings.shared.enabled },
+                    set: { BoosterSettings.shared.enabled = $0; BoosterSettings.shared.save() }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+
+            Text(
+                "Speeds up torrents you are downloading: “Boost with Connection "
+                    + "Booster” in a torrent's context menu fetches still-missing "
+                    + "pieces from HTTP web seeds (and any mirror URL), verifies each "
+                    + "piece against the .torrent hashes, then rechecks. Streams, "
+                    + "slow-mode and cellular options live in Settings → Connection "
+                    + "Booster."
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+
+            Text(eligibleHint)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.top, 6)
-        } else {
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var boostSection: some View {
+        if !center.boosts.isEmpty {
             VStack(spacing: 8) {
                 ForEach(center.boosts) { task in
                     BoostRow(task: task)
@@ -106,7 +125,6 @@ struct DownloadCenterView: View {
         }
     }
 }
-
 private struct BoostRow: View {
     @Bindable var task: TorrentBoostTask
 
