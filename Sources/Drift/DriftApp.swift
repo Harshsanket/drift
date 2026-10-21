@@ -8,7 +8,6 @@ struct DriftApp: App {
         let model = ListViewModel()
         _model = State(initialValue: model)
         StatusItemController.shared.install(model: model)
-        UpdateChecker.shared.checkIfDueOnLaunch()
         // Supply-chain self-check: when a release manifest is embedded,
         // verify the bundle at launch. Dev builds (no manifest) report
         // `manifestMissing` without raising a fuss.

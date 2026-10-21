@@ -25,14 +25,9 @@ final class UpdateChecker {
     private static let latestReleaseURL =
         URL(string: "https://api.github.com/repos/Harshsanket/drift/releases/latest")!
 
-    private var didCheckOnLaunch = false
-
-    func checkIfDueOnLaunch() {
-        guard !didCheckOnLaunch else { return }
-        didCheckOnLaunch = true
-        Task { await check() }
-    }
-
+    /// Manual-only: update checks never run automatically. The only
+    /// sanctioned launch-time updater is `UpdateService` (Sparkle), which
+    /// stays silent unless a feed is configured and auto-updates are on.
     func check() async {
         guard !checking else { return }
         checking = true
