@@ -321,7 +321,7 @@ struct ContentView: View {
                     )
                     if !ProcessInfo.processInfo.arguments.contains("--test-downloads-long") {
                         DownloadCenter.shared.remove(download)
-                        try? FileManager.default.removeItem(at: seed)
+                        DownloadCenter.shared.deleteProbeSeed(seed)
                         writeProbeLog("[downloads] hook cleanup done")
                     }
                 }

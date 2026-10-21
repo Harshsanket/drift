@@ -473,21 +473,26 @@ final class TorrentBoostTask: Identifiable {
         if let cached = handleCache[fileIndex] { return cached }
         guard let meta, fileIndex < meta.files.count else { return nil }
         let file = meta.files[fileIndex]
-        let base = URL(fileURLWithPath: savePath.isEmpty ? "." : savePath)
+        let base = canonicalSaveRoot
         var candidates = [base.appendingPathComponent(file.path)]
         if !meta.name.isEmpty, !file.path.hasPrefix("\(meta.name)/") {
             candidates.append(base.appendingPathComponent(meta.name).appendingPathComponent(file.path))
         }
         for candidate in candidates {
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                if let handle = try? FileHandle(forUpdating: candidate) {
-                    handleCache[fileIndex] = handle
-                    return handle
-                }
-            }
+            guard FileGateway.verdictForPieceWrite(
+                candidate: candidate, saveRoot: base
+            ) == .allowed else { continue }
+            guard let handle = try? FileHandle(forUpdating: candidate) else { continue }
+            handleCache[fileIndex] = handle
+            return handle
         }
         message = "target file missing: \(file.path)"
         return nil
+    }
+
+    /// Canonicalized root every piece write is pinned against.
+    private var canonicalSaveRoot: URL {
+        FileGateway.canonicalized(savePath.isEmpty ? "." : savePath)
     }
 
     private func unwind(abort: Bool) async {

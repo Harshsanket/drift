@@ -596,7 +596,8 @@ private struct TorrentRowMenu: View {
                 writeProbeLog("[ui] open destination skipped (unreadable) \(expanded)")
                 return
             }
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: expanded)
+            let root = DownloadCenter.shared.openDestinationFolder(expanded)
+            if root { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: expanded) }
         } label: {
             Label("Open Destination Folder", systemImage: "arrow.up.right.folder")
         }

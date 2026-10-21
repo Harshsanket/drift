@@ -116,6 +116,8 @@ struct HeaderTrailingControls: View {
 
             TransportControls(model: model)
 
+            PrivacyChip(widthBudget: fit.privacyBudget)
+
             FilterField(
                 text: $model.searchText,
                 isFocused: $filterFocused,
@@ -147,24 +149,30 @@ struct HeaderTrailingControls: View {
 struct HeaderFit {
     let filterWidth: CGFloat
     let showsInfoButton: Bool
+    let privacyBudget: CGFloat
 
     init(width: CGFloat) {
         switch width {
         case ..<440:
             filterWidth = 80
             showsInfoButton = false
+            privacyBudget = 96
         case ..<520:
             filterWidth = 100
             showsInfoButton = false
+            privacyBudget = 112
         case ..<680:
             filterWidth = 130
             showsInfoButton = true
+            privacyBudget = 132
         case ..<840:
             filterWidth = 160
             showsInfoButton = true
+            privacyBudget = 152
         default:
             filterWidth = 180
             showsInfoButton = true
+            privacyBudget = 172
         }
     }
 }
@@ -252,6 +260,51 @@ private struct TransportSegment: View {
         guard isEnabled else { return 0 }
         if configuration.isPressed { return 0.16 }
         return isHovering ? 0.09 : 0
+    }
+}
+
+// MARK: - Privacy chip
+
+/// Tunnel privacy surface: a small shield capsule showing the current leak
+/// state. Clicking it runs a fresh privacy check. The chip only appears once
+/// privacy has a story to tell (tunnel up / down / detection trouble), and
+/// stays out of the way at very narrow widths.
+struct PrivacyChip: View {
+    let widthBudget: CGFloat
+    @State private var isRunning = false
+
+    var body: some View {
+        let narrow = widthBudget < 110
+        HStack(spacing: 5) {
+            Image(systemName: IPLeakProbe.shared.state.systemImage)
+                .font(.system(size: 11, weight: .semibold))
+            if !narrow {
+                Text(IPLeakProbe.shared.state.shortLabel)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            if isRunning {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, narrow ? 9 : 10)
+        .frame(height: DesignSystem.Metrics.controlHeight)
+        .capsuleSurface()
+        .contentShape(Capsule(style: .continuous))
+        .onTapGesture { runCheck() }
+        .help(IPLeakProbe.shared.state.detail)
+        .accessibilityLabel("Privacy check: \(IPLeakProbe.shared.state.shortLabel)")
+    }
+
+    private func runCheck() {
+        guard !isRunning else { return }
+        isRunning = true
+        let phase = TunnelService.shared.phase
+        Task { @MainActor in
+            await IPLeakProbe.shared.runLiveCheck(phase: phase)
+            isRunning = false
+        }
     }
 }
 

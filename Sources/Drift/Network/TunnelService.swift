@@ -110,6 +110,9 @@ final class TunnelService {
     func stopTunnel() {
         CtlClient.send(op: "stop", profile: nil)
         TunnelProxy.publish(port: 0, active: false)
+        // Cache hygiene: nothing fetched over the tunnel may linger for a
+        // retry on the plain route later.
+        URLCache.shared.removeAllCachedResponses()
         setPhase(enabled ? .needsElevation : .disabled)
         deviceName = nil
         receivedBytes = 0
@@ -135,6 +138,7 @@ final class TunnelService {
                     // Helper vanished: kill-switch stays enforced by the
                     // relay's death, we just drop to a down state.
                     self.phase = .down("helper exited")
+                    IPLeakProbe.shared.observePhase(.down("helper exited"))
                     self.deviceName = nil
                 }
                 TunnelProxy.sweepKillSwitch()
@@ -157,12 +161,15 @@ final class TunnelService {
             sentBytes = response.sentBytes
             let active = parsed == "connected" && response.deviceName != nil
             TunnelProxy.publish(port: response.socksPort, active: active)
-            phase = TunnelPhaseParser.uiPhase(raw, device: response.deviceName)
+            let uiPhase = TunnelPhaseParser.uiPhase(raw, device: response.deviceName)
+            phase = uiPhase
+            IPLeakProbe.shared.observePhase(uiPhase)
         }
     }
 
     private func setPhase(_ phase: Phase) {
         self.phase = phase
+        IPLeakProbe.shared.observePhase(phase)
     }
 
     private func waitForCtl(timeout: TimeInterval) async -> CtlClient.Response? {

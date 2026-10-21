@@ -91,9 +91,14 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
     /// tunnel state. Run only on the main actor (onRebuild also fires from
     /// poll tasks; hopping keeps this race-free).
     @MainActor private func rebuildSession() {
+        // Whatever route we were on, cached pages must never survive a
+        // tunnel flip: an uncached body fetched pre-flip must not be
+        // replayed on the new route.
+        URLCache.shared.removeAllCachedResponses()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 10
+        configuration.urlCache = nil
         TunnelProxy.apply(to: configuration)
         sessionBox.replace(URLSession(configuration: configuration))
     }
@@ -1389,23 +1394,68 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     // MARK: - Mapping
 
+    /// Remote-facing value scrub. Server JSON is untrusted input: display
+    /// strings are stripped of control characters and length-capped; numbers
+    /// are coerced into sane ranges so a malformed or hostile payload can
+    /// never push garbage, NaN-scale speeds or negative sizes into the UI
+    /// (or, through the booster, into file writes).
+    enum RemoteSanitizer {
+        static let maxDisplayLength = 300
+        static let maxPathLength = 2048
+
+        static func text(_ raw: String, maxLength: Int = maxDisplayLength) -> String {
+            var out = String.UnicodeScalarView()
+            for scalar in raw.unicodeScalars {
+                if scalar.value < 32 || scalar.value == 0x7f { continue }
+                out.append(scalar)
+            }
+            return String(String(out).prefix(maxLength))
+        }
+
+        static func path(_ raw: String) -> String {
+            text(raw, maxLength: maxPathLength)
+        }
+
+        static func int(_ raw: Any?, inRange: ClosedRange<Int64>) -> Int64 {
+            guard let number = raw as? NSNumber else { return inRange.lowerBound }
+            let value = number.int64Value
+            return min(inRange.upperBound, max(inRange.lowerBound, value))
+        }
+
+        static func double(_ raw: Any?, inRange: ClosedRange<Double>) -> Double {
+            guard let number = raw as? NSNumber else { return inRange.lowerBound }
+            let value = number.doubleValue
+            if value.isNaN { return inRange.lowerBound }
+            // Non-finite magnitudes (±inf) still clamp into the range.
+            return min(inRange.upperBound, max(inRange.lowerBound, value))
+        }
+
+        static func identifier(_ raw: String) -> String {
+            let cleaned = text(raw, maxLength: 64).lowercased()
+            // Torrent ids are hex hashes (40 or 64 chars); anything else is
+            // displayed, not used for storage keys.
+            let hex = cleaned.filter { $0.isHexDigit }
+            return hex == cleaned ? cleaned : cleaned
+        }
+    }
+
     static func summary(id: String, fields: [String: Any]) -> TorrentSummary {
-        let name = (fields["name"] as? String) ?? id
-        let progress = (fields["progress"] as? NSNumber)?.doubleValue ?? 0
-        let size = (fields["size"] as? NSNumber)?.int64Value ?? 0
-        let downloadSpeed = (fields["dlspeed"] as? NSNumber)?.int64Value ?? 0
-        let uploadSpeed = (fields["upspeed"] as? NSNumber)?.int64Value ?? 0
-        let etaRaw = (fields["eta"] as? NSNumber)?.doubleValue ?? -1
+        let name = (fields["name"] as? String).map { RemoteSanitizer.text($0) } ?? id
+        let progress = RemoteSanitizer.double(fields["progress"], inRange: 0...1)
+        let size = RemoteSanitizer.int(fields["size"], inRange: 0...(1 << 62))
+        let downloadSpeed = RemoteSanitizer.int(fields["dlspeed"], inRange: 0...(1 << 62))
+        let uploadSpeed = RemoteSanitizer.int(fields["upspeed"], inRange: 0...(1 << 62))
+        let etaRaw = RemoteSanitizer.double(fields["eta"], inRange: -1...Double(1 << 24))
         let eta: TimeInterval? = (etaRaw < 0 || etaRaw >= 8_640_000) ? nil : etaRaw
-        let timeActive = (fields["time_active"] as? NSNumber)?.doubleValue ?? 0
+        let timeActive = RemoteSanitizer.double(fields["time_active"], inRange: 0...Double(1 << 24))
         let category = (fields["category"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let tags = ((fields["tags"] as? String) ?? "")
             .split(separator: " ")
             .map(String.init)
         let state = (fields["state"] as? String) ?? ""
-        let ratio = (fields["ratio"] as? NSNumber)?.doubleValue ?? 0
-        let availability = (fields["availability"] as? NSNumber)?.doubleValue ?? 0
-        let addedOn = (fields["added_on"] as? NSNumber)?.doubleValue ?? 0
+        let ratio = RemoteSanitizer.double(fields["ratio"], inRange: -1...Double(1 << 12))
+        let availability = RemoteSanitizer.double(fields["availability"], inRange: -1...Double(1 << 16))
+        let addedOn = RemoteSanitizer.double(fields["added_on"], inRange: 0...Double(1 << 54))
         return TorrentSummary(
             id: id,
             name: name,
@@ -1422,9 +1472,9 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
             seeds: (fields["num_complete"] as? NSNumber)?.intValue ?? 0,
             peers: (fields["num_incomplete"] as? NSNumber)?.intValue ?? 0,
             availability: availability,
-            downloaded: (fields["downloaded"] as? NSNumber)?.int64Value ?? 0,
-            uploaded: (fields["uploaded"] as? NSNumber)?.int64Value ?? 0,
-            savePath: (fields["save_path"] as? String) ?? "",
+            downloaded: RemoteSanitizer.int(fields["downloaded"], inRange: 0...(1 << 62)),
+            uploaded: RemoteSanitizer.int(fields["uploaded"], inRange: 0...(1 << 62)),
+            savePath: RemoteSanitizer.path((fields["save_path"] as? String) ?? ""),
             addedOn: addedOn,
             sequential: (fields["seq_dl"] as? Bool) ?? false,
             firstLastPiecePriority: (fields["f_l_piece_prio"] as? Bool) ?? false,

@@ -116,6 +116,19 @@ final class DownloadCenter {
         let raw = AppSettings.shared.defaultSavePath
         return ((raw.isEmpty ? "~/Downloads" : raw) as NSString).expandingTildeInPath
     }
+
+    /// UI escape hatch for "Open Destination Folder": verdict gate only —
+    /// the UI never decides by itself whether an arbitrary path may be
+    /// fed into an NSWorkspace open call.
+    func openDestinationFolder(_ expanded: String) -> Bool {
+        FileGateway.canOpenDirectory(forDisplay: expanded)
+    }
+
+    /// Test-hook support: removes a probe seed file (state layer is the only
+    /// place the app is allowed to touch FileManager directly).
+    func deleteProbeSeed(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
 }
 
 /// Elongated web-seed availability snapshot for one torrent.
