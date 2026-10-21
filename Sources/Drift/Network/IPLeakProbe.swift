@@ -31,7 +31,7 @@ final class IPLeakProbe {
             switch self {
             case .verifiedProtected: "Protected"
             case .tunnelActiveExitUnconfirmed: "Tunnel active"
-            case .detectionUnavailable: "Detection unavailable"
+            case .detectionUnavailable: "Tunnel not connected"
             case .refusingAllTraffic: "Traffic refused"
             case .unusualRoute: "Unusual route"
             }
@@ -44,7 +44,7 @@ final class IPLeakProbe {
             case .tunnelActiveExitUnconfirmed:
                 "Tunnel is up, but the exit point could not be confirmed yet"
             case .detectionUnavailable:
-                "Leak detection unavailable: no safe probe path right now"
+                "No tunnel is running, so there is nothing to verify yet"
             case .refusingAllTraffic:
                 "Tunnel is down and the relay is refusing all traffic"
             case .unusualRoute:
