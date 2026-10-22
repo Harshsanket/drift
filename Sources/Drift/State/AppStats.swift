@@ -49,6 +49,7 @@ final class AppStats {
     private var lastSent: Int64?
     private var lastTickAt: Date?
     private var lastBoosterBytes: Int64?
+    private var lastSpeedSampleAt: Date?
     private var defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -83,9 +84,14 @@ final class AppStats {
         lastSent = sentSession
         assertPeak(speed: downloadSpeed, at: now, isDownload: true)
         assertPeak(speed: uploadSpeed, at: now, isDownload: false)
-        speedHistory.append(SpeedSample(at: now, down: downloadSpeed, up: uploadSpeed))
-        if speedHistory.count > speedHistoryLimit {
-            speedHistory.removeFirst(speedHistory.count - speedHistoryLimit)
+        // The live graph samples once every five seconds regardless of the
+        // refresh tick cadence, so the series stays even across sync tiers.
+        if lastSpeedSampleAt.map({ now.timeIntervalSince($0) >= 5 }) ?? true {
+            lastSpeedSampleAt = now
+            speedHistory.append(SpeedSample(at: now, down: downloadSpeed, up: uploadSpeed))
+            if speedHistory.count > speedHistoryLimit {
+                speedHistory.removeFirst(speedHistory.count - speedHistoryLimit)
+            }
         }
         if downloadSpeed > 0 || uploadSpeed > 0 {
             if let tick = lastTickAt, now.timeIntervalSince(tick) > 0, now.timeIntervalSince(tick) < 30 {
@@ -152,6 +158,7 @@ final class AppStats {
         lastSent = nil
         lastTickAt = nil
         lastBoosterBytes = nil
+        lastSpeedSampleAt = nil
         speedHistory.removeAll()
         for key in [Keys.peakDownload, Keys.peakDownloadAt, Keys.peakUpload, Keys.peakUploadAt, Keys.received, Keys.sent, Keys.transferSeconds, Keys.firstConnected, Keys.boosterBytes] {
             defaults.removeObject(forKey: key)

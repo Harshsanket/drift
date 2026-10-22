@@ -7,22 +7,29 @@ import SwiftUI
 struct StatisticsPaneView: View {
     var model: ListViewModel
 
+    @State private var contentWidth: CGFloat = 0
+
     private var downloadColor: Color { DesignSystem.Palette.accent }
     private var uploadColor: Color { DesignSystem.Palette.connectionOK }
     private var wastedColor: Color { Color.orange }
 
     var body: some View {
+        let cardsLayout = contentWidth >= 980
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+            : AnyLayout(VStackLayout(spacing: 16))
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 speedCard
-                appStatsCard
-                serverStatsCard
+                cardsLayout {
+                    appStatsCard
+                    serverStatsCard
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, model.footerHeight + 16)
-            .frame(maxWidth: 760, alignment: .center)
             .frame(maxWidth: .infinity)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .safeAreaInset(edge: .top, spacing: 0) { paneHeader }
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -168,7 +175,7 @@ struct StatisticsPaneView: View {
                         }
                     }
                     .chartYScale(domain: 0...max(Double(peak) * 1.15, 1024))
-                    .frame(height: 150)
+                    .frame(height: 210)
 
                     if samples.count < 2 {
                         VStack(spacing: 6) {
