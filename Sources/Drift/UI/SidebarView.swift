@@ -101,17 +101,6 @@ struct SidebarView: View {
                     }
                 }
             }
-            // Installed search plugins are indexer connectors the server
-            // runs. One row each, so they are inspectable (categories,
-            // version, site) and manageable from here.
-            if !model.searchPlugins.isEmpty {
-                Section("Plugins") {
-                    ForEach(model.searchPlugins) { plugin in
-                        searchPluginRow(plugin)
-                    }
-                }
-            }
-
             if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled {
                 Section("Tools") {
                     if AppSettings.shared.rssEnabled {
@@ -133,6 +122,17 @@ struct SidebarView: View {
                         ) {
                             model.toggleStatsPane(!model.showStatsPane)
                         }
+                    }
+                }
+            }
+
+            // Installed search plugins are indexer connectors the server
+            // runs. One row each, so they are inspectable (categories,
+            // version, site) and manageable from here.
+            if !model.searchPlugins.isEmpty {
+                Section("Plugins") {
+                    ForEach(model.searchPlugins) { plugin in
+                        searchPluginRow(plugin)
                     }
                 }
             }
