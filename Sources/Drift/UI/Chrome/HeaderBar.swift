@@ -417,23 +417,6 @@ private struct MoreOptionsMenu: View {
             Divider()
 
             Button {
-                model.toggleSearchPane(true)
-            } label: {
-                Label("Server Search…", systemImage: "magnifyingglass")
-            }
-            .help("Search through server plugins")
-            .disabled(!model.isConnected)
-
-            Button {
-                openWindow(id: "downloads")
-            } label: {
-                Label("Direct Downloads…", systemImage: "arrow.down.to.line.compact")
-            }
-            .help("Accelerated direct downloads")
-
-            Divider()
-
-            Button {
                 openWindow(id: "settings")
             } label: {
                 Label("Settings…", systemImage: "gearshape")
