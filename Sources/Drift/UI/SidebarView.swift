@@ -13,14 +13,10 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $model.statusFilter) {
             Section {
-                paneRow(
-                    "Server Search",
-                    systemImage: "magnifyingglass",
-                    selected: model.showSearchPane,
-                    help: "Search every enabled plugin on the connected server"
-                ) {
+                searchRow(selected: model.showSearchPane) {
                     model.toggleSearchPane(!model.showSearchPane)
                 }
+                .padding(.vertical, 3)
             }
 
             Section("Status") {
@@ -170,6 +166,39 @@ struct SidebarView: View {
                     .preference(key: SidebarWidthPreference.self, value: geo.size.width)
             }
         }
+    }
+
+    /// The search entry is styled as a persistent, padded control rather than
+    /// a bare row: unselected sidebars still show a resting background, so it
+    /// reads as a search entry instead of a stray section title.
+    private func searchRow(selected: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+            Text("Server Search")
+                .foregroundStyle(selected ? Color.primary : Color.secondary)
+            Spacer()
+            if model.searchRunning {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(selected
+                      ? Color.accentColor.opacity(0.28)
+                      : Color.primary.opacity(0.07))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.primary.opacity(selected ? 0 : 0.06), lineWidth: 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .help("Search every enabled plugin on the connected server")
     }
 
     private func paneRow(
