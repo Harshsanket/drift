@@ -308,6 +308,7 @@ final class ListViewModel {
             reconnectTask?.cancel()
             reconnectTask = nil
             refresh()
+            loadSearchPlugins()
             writeProbeLog("[sync] connected \(version)")
         } catch {
             let message = (error as? WebAPIError)?.message ?? error.localizedDescription
@@ -892,17 +893,155 @@ final class ListViewModel {
     private var activeSearchID: Int64?
     private var searchPollTask: Task<Void, Never>?
 
+    // MARK: - Search plugins (server-installed indexer scripts)
+
+    private(set) var searchPlugins: [SearchPlugin] = []
+    private(set) var searchPluginsLoaded = false
+    private(set) var searchPluginsBusy = false
+    private(set) var searchPluginsStatus: String?
+    var selectedSearchPluginName: String?
+
+    var selectedSearchPlugin: SearchPlugin? {
+        guard let selectedSearchPluginName else { return nil }
+        return searchPlugins.first { $0.name == selectedSearchPluginName }
+    }
+
+    func selectSearchPlugin(_ plugin: SearchPlugin) {
+        showStatsPane = false
+        showRSSPane = false
+        selectedIDs.removeAll()
+        selectedSearchPluginName = plugin.name
+        writeProbeLog("[search] plugin pane \(plugin.name)")
+    }
+
+    func closeSearchPluginPane() {
+        guard selectedSearchPluginName != nil else { return }
+        selectedSearchPluginName = nil
+        writeProbeLog("[search] plugin pane closed")
+    }
+
+    func loadSearchPlugins() {
+        guard !searchPluginsBusy else { return }
+        Task {
+            for _ in 0..<10 {
+                guard let engine, isConnected else {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    continue
+                }
+                searchPluginsBusy = true
+                await refreshSearchPlugins(using: engine)
+                searchPluginsBusy = false
+                return
+            }
+            searchPluginsStatus = "Connect to a server to load its search plugins."
+        }
+    }
+
+    private func refreshSearchPlugins(using engine: any TorrentEngine) async {
+        guard let plugins = await engine.searchPlugins() else {
+            searchPluginsStatus = "Couldn’t load search plugins from the server."
+            return
+        }
+        searchPlugins = plugins.sorted {
+            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
+        }
+        searchPluginsLoaded = true
+        searchPluginsStatus = nil
+        if let name = selectedSearchPluginName,
+           !searchPlugins.contains(where: { $0.name == name }) {
+            selectedSearchPluginName = nil
+        }
+        writeProbeLog("[search] plugins loaded count=\(searchPlugins.count)")
+    }
+
+    func setSearchPluginEnabled(_ plugin: SearchPlugin, enabled: Bool) {
+        guard let engine else { return }
+        searchPluginsBusy = true
+        Task {
+            if await engine.setSearchPluginsEnabled(names: [plugin.name], enabled: enabled) {
+                await refreshSearchPlugins(using: engine)
+                searchPluginsStatus = "\(enabled ? "Enabled" : "Disabled") \(plugin.fullName)."
+                writeProbeLog("[search] plugin \(plugin.name) \(enabled ? "enabled" : "disabled")")
+            } else {
+                searchPluginsStatus = "Couldn’t \(enabled ? "enable" : "disable") \(plugin.fullName)."
+            }
+            searchPluginsBusy = false
+        }
+    }
+
+    func uninstallSearchPlugin(_ plugin: SearchPlugin) {
+        guard let engine else { return }
+        searchPluginsBusy = true
+        Task {
+            if await engine.uninstallSearchPlugins(names: [plugin.name]) {
+                await refreshSearchPlugins(using: engine)
+                searchPluginsStatus = "Removed \(plugin.fullName)."
+                writeProbeLog("[search] plugin \(plugin.name) uninstalled")
+            } else {
+                searchPluginsStatus = "Couldn’t remove \(plugin.fullName)."
+            }
+            searchPluginsBusy = false
+        }
+    }
+
+    func installSearchPlugins(from text: String) {
+        let sources = text
+            .split(whereSeparator: { $0.isWhitespace || $0 == "," })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard let engine, !sources.isEmpty else { return }
+        searchPluginsBusy = true
+        Task {
+            if await engine.installSearchPlugins(sources: sources) {
+                await refreshSearchPlugins(using: engine)
+                searchPluginsStatus = sources.count == 1
+                    ? "Installed or updated 1 plugin."
+                    : "Installed or updated \(sources.count) plugins."
+                writeProbeLog("[search] installed plugins=\(sources.count)")
+            } else {
+                searchPluginsStatus = "Couldn’t install the plugin. Check the URL and the server’s Python setup."
+            }
+            searchPluginsBusy = false
+        }
+    }
+
+    func updateSearchPlugins() {
+        guard let engine else { return }
+        searchPluginsBusy = true
+        Task {
+            if await engine.updateSearchPlugins() {
+                searchPluginsStatus = "Checking for updates…"
+                // The server compares versions and applies updates in the
+                // background after responding, so refresh once it has had
+                // a moment to finish.
+                try? await Task.sleep(for: .seconds(4))
+                await refreshSearchPlugins(using: engine)
+                searchPluginsStatus = "Update check requested; qBittorrent installs newer versions in the background."
+                writeProbeLog("[search] plugin update check requested")
+            } else {
+                searchPluginsStatus = "Couldn’t check for plugin updates."
+            }
+            searchPluginsBusy = false
+        }
+    }
+
     func toggleRSSPane(_ enabled: Bool) {
         showRSSPane = enabled
         selectedIDs.removeAll()
-        if enabled { loadRSS() }
+        if enabled {
+            selectedSearchPluginName = nil
+            loadRSS()
+        }
         writeProbeLog("[engine] rss pane \(enabled)")
     }
 
     func toggleStatsPane(_ enabled: Bool) {
         showStatsPane = enabled
         selectedIDs.removeAll()
-        if enabled { refreshStatistics() }
+        if enabled {
+            selectedSearchPluginName = nil
+            refreshStatistics()
+        }
         writeProbeLog("[engine] stats pane \(enabled)")
     }
 
@@ -1000,7 +1139,7 @@ final class ListViewModel {
         Task {
             if let plugins = await engine.searchPlugins(), plugins.isEmpty {
                 searchRunning = false
-                searchNotice = "qBittorrent has no search plugins enabled. Install or enable one in qBittorrent’s Search tab, then try again."
+                searchNotice = "qBittorrent has no search plugins enabled. Install or enable one in Settings → Search Plugins (or qBittorrent’s Search tab), then try again."
                 writeProbeLog("[search] no enabled plugins")
                 return
             }

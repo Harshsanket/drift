@@ -59,7 +59,17 @@ struct ContentView: View {
                     // Fixed width (min = max): the split divider is not draggable.
                     .navigationSplitViewColumnWidth(210)
             } detail: {
-                if model.showStatsPane {
+                if let plugin = model.selectedSearchPlugin {
+                    SearchPluginPaneView(model: model, plugin: plugin)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            Color.clear
+                                .frame(height: headerOverflow)
+                                .allowsHitTesting(false)
+                        }
+                        .background(DetailInsetProbe { detailTopInset = $0 })
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .bottom) { footer }
+                } else if model.showStatsPane {
                     StatisticsPaneView(model: model)
                         .safeAreaInset(edge: .top, spacing: 0) {
                             Color.clear

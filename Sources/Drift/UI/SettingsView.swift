@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct SettingsView: View {
+    @Bindable var model: ListViewModel
     @Bindable private var app = AppSettings.shared
     @Bindable private var connection = ConnectionSettings.shared
     @Bindable private var speed = SpeedSettings.shared
@@ -15,6 +16,7 @@ struct SettingsView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var testing = false
+    @State private var pluginSource = ""
 
     @State private var leecherText = ""
     @State private var playerText = ""
@@ -124,6 +126,10 @@ struct SettingsView: View {
                     .disabled(!speed.loaded)
                 }
             }
+
+            Section("Search Plugins") {
+                searchPluginsSection
+            }
             }
 
             Section("Connection Booster") {
@@ -231,6 +237,7 @@ struct SettingsView: View {
             WindowOpener.openSettings = { openWindow(id: "settings") }
             openWindow(id: "main")
             NotificationCenter.default.post(name: .driftSpeedSettingsRequested, object: self)
+            if model.isConnected { model.loadSearchPlugins() }
             Task { serverBans = await leech.serverBans?() ?? [] }
         }
         .task {
@@ -351,6 +358,124 @@ struct SettingsView: View {
             "Decisions are logged for review, nothing is banned automatically yet."
         case .live:
             "Matching peers are banned server-side immediately (banned_IPs)."
+        }
+    }
+
+    // MARK: - Search plugins
+
+    @ViewBuilder
+    private var searchPluginsSection: some View {
+        Text("Search plugins are small Python scripts qBittorrent runs on the server — one per torrent site. Every enabled plugin is queried when you start a server search. Drift does not run plugins itself; the sidebar lists each installed plugin with its categories and site.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        if model.searchPlugins.isEmpty {
+            if model.searchPluginsBusy {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading plugins…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text(model.isConnected
+                     ? "No plugins installed yet. Paste a raw .py plugin URL below."
+                     : "Connect to a server to see and manage its plugins.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            ForEach(model.searchPlugins) { plugin in
+                searchPluginRow(plugin)
+            }
+        }
+
+        HStack(spacing: 8) {
+            TextField("Plugin .py URL (comma-separated for several)", text: $pluginSource)
+                .textFieldStyle(.roundedBorder)
+            Button("Install") {
+                model.installSearchPlugins(from: pluginSource)
+                pluginSource = ""
+            }
+            .disabled(
+                pluginSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || model.searchPluginsBusy || !model.isConnected
+            )
+            .help("Installs a plugin, or updates it if the same plugin name is already installed")
+        }
+
+        HStack(spacing: 10) {
+            Button("Refresh") {
+                model.loadSearchPlugins()
+            }
+            .disabled(model.searchPluginsBusy || !model.isConnected)
+
+            Button("Check for Updates") {
+                model.updateSearchPlugins()
+            }
+            .disabled(model.searchPluginsBusy || !model.isConnected)
+            .help("Ask qBittorrent to compare installed plugins with its update feed")
+
+            if model.searchPluginsBusy {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Spacer()
+        }
+
+        if let status = model.searchPluginsStatus {
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        Text("Official plugins are published as .py files in the qBittorrent search-plugins repository. Uninstalling removes the script from the server; disabling keeps it installed but excludes it from searches.")
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+    }
+
+    private func searchPluginRow(_ plugin: SearchPlugin) -> some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: Binding(
+                get: { plugin.enabled },
+                set: { model.setSearchPluginEnabled(plugin, enabled: $0) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .disabled(model.searchPluginsBusy)
+            .help(plugin.enabled ? "Disable this plugin" : "Enable this plugin")
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(plugin.fullName)
+                        .font(.callout)
+                        .lineLimit(1)
+                    if !plugin.version.isEmpty {
+                        Text("v\(plugin.version)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(plugin.categories.isEmpty
+                     ? "All categories"
+                     : plugin.categories.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button(role: .destructive) {
+                model.uninstallSearchPlugin(plugin)
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.searchPluginsBusy)
+            .help("Uninstall \(plugin.fullName)")
         }
     }
 

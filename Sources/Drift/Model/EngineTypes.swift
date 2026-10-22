@@ -80,3 +80,17 @@ struct SearchResult: Identifiable, Equatable, Hashable {
     var engineName: String
     var id: String { fileURL + siteURL }
 }
+
+/// One installed search plugin. A plugin is a Python script that queries a
+/// single torrent indexer; qBittorrent runs it server-side and only enabled
+/// plugins are used when a search starts. `categories` are the search
+/// categories the plugin supports (the synthetic "all" entry is dropped).
+struct SearchPlugin: Identifiable, Equatable, Hashable {
+    var name: String
+    var fullName: String
+    var version: String
+    var siteURL: String
+    var enabled: Bool
+    var categories: [String]
+    var id: String { name }
+}

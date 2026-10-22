@@ -988,28 +988,84 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     // MARK: Search
 
-    /// Names of the server's enabled search plugins. An empty array means
+    /// Installed server-side search plugins. An empty array means
     /// qBittorrent can start search jobs but they will finish instantly
     /// with zero results.
-    func searchPlugins() async -> [String]? {
+    func searchPlugins() async -> [SearchPlugin]? {
         do {
             let data = try await fetchData(path: "search/plugins", query: [])
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [Any]
+            guard let entries = try JSONSerialization.jsonObject(with: data) as? [Any]
             else { return nil }
-            var enabled: [String] = []
-            for entry in json {
+            return entries.compactMap { entry -> SearchPlugin? in
+                // Very old builds returned bare plugin names.
                 if let name = entry as? String {
-                    enabled.append(name)
-                } else if let row = entry as? [String: Any],
-                          (row["enabled"] as? Bool) ?? true,
-                          let name = row["name"] as? String {
-                    enabled.append(name)
+                    return SearchPlugin(
+                        name: name,
+                        fullName: name,
+                        version: "",
+                        siteURL: "",
+                        enabled: true,
+                        categories: []
+                    )
                 }
+                guard let row = entry as? [String: Any],
+                      let name = row["name"] as? String else { return nil }
+                let categories = (row["supportedCategories"] as? [[String: Any]] ?? [])
+                    .filter { ($0["id"] as? String) != "all" }
+                    .compactMap { $0["name"] as? String }
+                return SearchPlugin(
+                    name: name,
+                    fullName: (row["fullName"] as? String) ?? name,
+                    version: (row["version"] as? String) ?? "",
+                    siteURL: (row["url"] as? String) ?? "",
+                    enabled: (row["enabled"] as? Bool) ?? true,
+                    categories: categories
+                )
             }
-            return enabled
         } catch {
             writeProbeLog("[engine] searchPlugins failed: \(describe(error))")
             return nil
+        }
+    }
+
+    func installSearchPlugins(sources: [String]) async -> Bool {
+        await searchPluginAction(
+            "search/installPlugin",
+            items: [("sources", sources.joined(separator: "|"))]
+        )
+    }
+
+    func uninstallSearchPlugins(names: [String]) async -> Bool {
+        await searchPluginAction(
+            "search/uninstallPlugin",
+            items: [("names", names.joined(separator: "|"))]
+        )
+    }
+
+    func setSearchPluginsEnabled(names: [String], enabled: Bool) async -> Bool {
+        await searchPluginAction(
+            "search/enablePlugin",
+            items: [
+                ("names", names.joined(separator: "|")),
+                ("enable", enabled ? "true" : "false")
+            ]
+        )
+    }
+
+    /// Asks the server to compare installed plugins against its update feed.
+    /// The server applies updates asynchronously after responding.
+    func updateSearchPlugins() async -> Bool {
+        await searchPluginAction("search/updatePlugins", items: [])
+    }
+
+    private func searchPluginAction(_ path: String, items: [(String, String)]) async -> Bool {
+        do {
+            _ = try await postForData(path: path, items: items)
+            writeProbeLog("[engine] \(path) ok")
+            return true
+        } catch {
+            writeProbeLog("[engine] \(path) failed: \(describe(error))")
+            return false
         }
     }
 

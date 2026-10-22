@@ -90,7 +90,8 @@ struct SidebarView: View {
                     }
                 }
             }
-            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled {
+            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled
+                || !model.searchPlugins.isEmpty {
                 Section("Tools") {
                     if AppSettings.shared.rssEnabled {
                         Label {
@@ -142,6 +143,13 @@ struct SidebarView: View {
                         }
                         .help("Transfer statistics")
                     }
+
+                    // Installed search plugins are indexer connectors the
+                    // server runs. One row each, so they are inspectable
+                    // (categories, version, site) and manageable from here.
+                    ForEach(model.searchPlugins) { plugin in
+                        searchPluginRow(plugin)
+                    }
                 }
             }
         }
@@ -156,6 +164,9 @@ struct SidebarView: View {
             if !enabled, model.showStatsPane {
                 model.toggleStatsPane(false)
             }
+        }
+        .onChange(of: model.statusFilter) { _, _ in
+            model.closeSearchPluginPane()
         }
         .simultaneousGesture(TapGesture().onEnded {
             model.collapseDetailsFromOutsideClick()
@@ -175,6 +186,57 @@ struct SidebarView: View {
                     .preference(key: SidebarWidthPreference.self, value: geo.size.width)
             }
         }
+    }
+
+    private func searchPluginRow(_ plugin: SearchPlugin) -> some View {
+        Label {
+            HStack(spacing: 6) {
+                Text(plugin.fullName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+                if !plugin.enabled {
+                    Text("off")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        } icon: {
+            Image(systemName: "globe")
+                .foregroundStyle(plugin.enabled ? Color.accentColor : Color.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background {
+            if model.selectedSearchPluginName == plugin.name {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.accentColor.opacity(0.28))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            model.selectSearchPlugin(plugin)
+        }
+        .contextMenu {
+            Button(plugin.enabled ? "Disable" : "Enable") {
+                model.setSearchPluginEnabled(plugin, enabled: !plugin.enabled)
+            }
+            Button("Check for Updates") {
+                model.updateSearchPlugins()
+            }
+            Divider()
+            Button("Refresh List") {
+                model.loadSearchPlugins()
+            }
+            Button(role: .destructive) {
+                model.uninstallSearchPlugin(plugin)
+            } label: {
+                Text("Uninstall \(plugin.fullName)")
+            }
+        }
+        .help(plugin.categories.isEmpty
+              ? "Search plugin \(plugin.fullName)"
+              : "\(plugin.fullName) · \(plugin.categories.joined(separator: ", "))")
     }
 
     private func organizerRow(

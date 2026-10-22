@@ -4,6 +4,7 @@ import SwiftUI
 /// for results, and offers Download/Clear actions.
 struct SearchSheet: View {
     @Bindable var model: ListViewModel
+    @Environment(\.openWindow) private var openWindow
 
     @State private var pattern = ""
     @FocusState private var patternFocused: Bool
@@ -142,6 +143,12 @@ struct SearchSheet: View {
             .foregroundStyle(.secondary)
 
             Spacer()
+
+            Button("Manage Plugins…") {
+                model.showSearchPane = false
+                openWindow(id: "settings")
+            }
+            .buttonStyle(.bordered)
 
             Button("Clear") {
                 model.clearSearchResults()

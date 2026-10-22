@@ -41,7 +41,7 @@ struct DriftApp: App {
         .defaultLaunchBehavior(.presented)
 
         Window("Settings", id: "settings") {
-            SettingsView()
+            SettingsView(model: model)
         }
         .defaultSize(width: 520, height: 460)
         .windowResizability(.contentSize)
