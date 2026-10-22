@@ -909,6 +909,7 @@ final class ListViewModel {
     func selectSearchPlugin(_ plugin: SearchPlugin) {
         showStatsPane = false
         showRSSPane = false
+        showSearchPane = false
         selectedIDs.removeAll()
         selectedSearchPluginName = plugin.name
         writeProbeLog("[search] plugin pane \(plugin.name)")
@@ -918,6 +919,15 @@ final class ListViewModel {
         guard selectedSearchPluginName != nil else { return }
         selectedSearchPluginName = nil
         writeProbeLog("[search] plugin pane closed")
+    }
+
+    /// Clicking a status row always returns the detail column to the torrent
+    /// list, whichever sidebar pane was showing.
+    func dismissSidebarPanes() {
+        showStatsPane = false
+        showRSSPane = false
+        showSearchPane = false
+        selectedSearchPluginName = nil
     }
 
     func loadSearchPlugins() {
@@ -1030,6 +1040,8 @@ final class ListViewModel {
         selectedIDs.removeAll()
         if enabled {
             selectedSearchPluginName = nil
+            showSearchPane = false
+            showStatsPane = false
             loadRSS()
         }
         writeProbeLog("[engine] rss pane \(enabled)")
@@ -1040,6 +1052,8 @@ final class ListViewModel {
         selectedIDs.removeAll()
         if enabled {
             selectedSearchPluginName = nil
+            showSearchPane = false
+            showRSSPane = false
             refreshStatistics()
         }
         writeProbeLog("[engine] stats pane \(enabled)")
@@ -1127,6 +1141,17 @@ final class ListViewModel {
     // MARK: - Search (A9)
 
     var showSearchPane = false
+
+    func toggleSearchPane(_ enabled: Bool) {
+        showSearchPane = enabled
+        selectedIDs.removeAll()
+        if enabled {
+            showStatsPane = false
+            showRSSPane = false
+            selectedSearchPluginName = nil
+        }
+        writeProbeLog("[search] pane \(enabled)")
+    }
 
     func startSearch(pattern: String) {
         let trimmed = pattern.trimmingCharacters(in: .whitespaces)

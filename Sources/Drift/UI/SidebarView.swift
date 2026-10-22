@@ -12,6 +12,17 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $model.statusFilter) {
+            Section {
+                paneRow(
+                    "Server Search",
+                    systemImage: "magnifyingglass",
+                    selected: model.showSearchPane,
+                    help: "Search every enabled plugin on the connected server"
+                ) {
+                    model.toggleSearchPane(!model.showSearchPane)
+                }
+            }
+
             Section("Status") {
                 ForEach(StatusFilter.sidebarCases) { filter in
                     Label {
@@ -90,65 +101,38 @@ struct SidebarView: View {
                     }
                 }
             }
-            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled
-                || !model.searchPlugins.isEmpty {
-                Section("Tools") {
-                    if AppSettings.shared.rssEnabled {
-                        Label {
-                            HStack {
-                                Text("Feeds")
-                                Spacer()
-                            }
-                        } icon: {
-                            Image(systemName: "dot.radiowaves.up.forward")
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background {
-                            if model.showRSSPane {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(Color.accentColor.opacity(0.28))
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if model.showStatsPane { model.toggleStatsPane(false) }
-                            model.toggleRSSPane(!model.showRSSPane)
-                        }
-                        .help("RSS feeds from the server")
-                    }
-                    if AppSettings.shared.statsEnabled {
-                        Label {
-                            HStack {
-                                Text("Statistics")
-                                Spacer()
-                            }
-                        } icon: {
-                            Image(systemName: "chart.bar.doc.horizontal")
-                                .foregroundStyle(Color.accentColor)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background {
-                            if model.showStatsPane {
-                                RoundedRectangle(cornerRadius: 5)
-                                    .fill(Color.accentColor.opacity(0.28))
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if model.showRSSPane { model.toggleRSSPane(false) }
-                            model.toggleStatsPane(!model.showStatsPane)
-                        }
-                        .help("Transfer statistics")
-                    }
-
-                    // Installed search plugins are indexer connectors the
-                    // server runs. One row each, so they are inspectable
-                    // (categories, version, site) and manageable from here.
+            // Installed search plugins are indexer connectors the server
+            // runs. One row each, so they are inspectable (categories,
+            // version, site) and manageable from here.
+            if !model.searchPlugins.isEmpty {
+                Section("Plugins") {
                     ForEach(model.searchPlugins) { plugin in
                         searchPluginRow(plugin)
+                    }
+                }
+            }
+
+            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled {
+                Section("Tools") {
+                    if AppSettings.shared.rssEnabled {
+                        paneRow(
+                            "Feeds",
+                            systemImage: "dot.radiowaves.up.forward",
+                            selected: model.showRSSPane,
+                            help: "RSS feeds from the server"
+                        ) {
+                            model.toggleRSSPane(!model.showRSSPane)
+                        }
+                    }
+                    if AppSettings.shared.statsEnabled {
+                        paneRow(
+                            "Statistics",
+                            systemImage: "chart.bar.doc.horizontal",
+                            selected: model.showStatsPane,
+                            help: "Transfer statistics"
+                        ) {
+                            model.toggleStatsPane(!model.showStatsPane)
+                        }
                     }
                 }
             }
@@ -166,7 +150,7 @@ struct SidebarView: View {
             }
         }
         .onChange(of: model.statusFilter) { _, _ in
-            model.closeSearchPluginPane()
+            model.dismissSidebarPanes()
         }
         .simultaneousGesture(TapGesture().onEnded {
             model.collapseDetailsFromOutsideClick()
@@ -186,6 +170,35 @@ struct SidebarView: View {
                     .preference(key: SidebarWidthPreference.self, value: geo.size.width)
             }
         }
+    }
+
+    private func paneRow(
+        _ title: String,
+        systemImage: String,
+        selected: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Label {
+            HStack {
+                Text(title)
+                Spacer()
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(Color.accentColor)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background {
+            if selected {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.accentColor.opacity(0.28))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .help(help)
     }
 
     private func searchPluginRow(_ plugin: SearchPlugin) -> some View {

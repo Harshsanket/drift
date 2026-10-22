@@ -69,6 +69,16 @@ struct ContentView: View {
                         .background(DetailInsetProbe { detailTopInset = $0 })
                         .background(Color(nsColor: .windowBackgroundColor))
                         .overlay(alignment: .bottom) { footer }
+                } else if model.showSearchPane {
+                    SearchPaneView(model: model)
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            Color.clear
+                                .frame(height: headerOverflow)
+                                .allowsHitTesting(false)
+                        }
+                        .background(DetailInsetProbe { detailTopInset = $0 })
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .bottom) { footer }
                 } else if model.showStatsPane {
                     StatisticsPaneView(model: model)
                         .safeAreaInset(edge: .top, spacing: 0) {
@@ -131,9 +141,6 @@ struct ContentView: View {
         }
         .sheet(isPresented: $updateChecker.promptVisible) {
             GitHubUpdatePrompt()
-        }
-        .sheet(isPresented: $model.showSearchPane) {
-            SearchSheet(model: model)
         }
         .onOpenURL { url in
             if let handoff = Self.handoff(for: url) {

@@ -135,7 +135,7 @@ struct SearchPluginPaneView: View {
                     Spacer()
 
                     Button("Open Search…") {
-                        model.showSearchPane = true
+                        model.toggleSearchPane(true)
                     }
                     .disabled(!model.isConnected)
 

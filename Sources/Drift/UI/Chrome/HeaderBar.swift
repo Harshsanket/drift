@@ -417,7 +417,7 @@ private struct MoreOptionsMenu: View {
             Divider()
 
             Button {
-                model.showSearchPane = true
+                model.toggleSearchPane(true)
             } label: {
                 Label("Server Search…", systemImage: "magnifyingglass")
             }
