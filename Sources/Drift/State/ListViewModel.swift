@@ -888,6 +888,7 @@ final class ListViewModel {
     private(set) var searchResults: [SearchResult] = []
     private(set) var searchRunning = false
     private(set) var searchQuery = ""
+    private(set) var searchNotice: String?
     private var activeSearchID: Int64?
     private var searchPollTask: Task<Void, Never>?
 
@@ -991,14 +992,23 @@ final class ListViewModel {
     func startSearch(pattern: String) {
         let trimmed = pattern.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let engine, isConnected else { return }
+        searchPollTask?.cancel()
         searchResults = []
+        searchNotice = nil
         searchRunning = true
         searchQuery = trimmed
         Task {
+            if let plugins = await engine.searchPlugins(), plugins.isEmpty {
+                searchRunning = false
+                searchNotice = "qBittorrent has no search plugins enabled. Install or enable one in qBittorrent’s Search tab, then try again."
+                writeProbeLog("[search] no enabled plugins")
+                return
+            }
             let id = await engine.startSearch(pattern: trimmed, category: "all")
             activeSearchID = id
             guard id != nil else {
                 searchRunning = false
+                searchNotice = "The server could not start the search."
                 writeProbeLog("[search] start failed")
                 return
             }
@@ -1022,6 +1032,9 @@ final class ListViewModel {
                 if response.status == "Stopped" { break }
             }
             searchRunning = lastStatus == "Running"
+            if !searchRunning, searchResults.isEmpty {
+                searchNotice = "No results for “\(searchQuery)”."
+            }
             writeProbeLog("[search] ended status=\(lastStatus)")
         }
     }
@@ -1041,6 +1054,7 @@ final class ListViewModel {
         activeSearchID = nil
         searchRunning = false
         searchQuery = ""
+        searchNotice = nil
         writeProbeLog("[search] cleared")
     }
 

@@ -41,6 +41,19 @@ struct SearchSheet: View {
 
             if model.searchRunning || !model.searchResults.isEmpty {
                 resultTable
+            } else if let notice = model.searchNotice {
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.secondary)
+                    Text(notice)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Spacer()
+                }
+                .padding(.top, 40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack {
                     Text("Search the connected qBittorrent through its plugins; results land here as they arrive.")

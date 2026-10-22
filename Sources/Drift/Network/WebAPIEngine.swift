@@ -988,6 +988,31 @@ final class WebAPIEngine: TorrentEngine, @unchecked Sendable {
 
     // MARK: Search
 
+    /// Names of the server's enabled search plugins. An empty array means
+    /// qBittorrent can start search jobs but they will finish instantly
+    /// with zero results.
+    func searchPlugins() async -> [String]? {
+        do {
+            let data = try await fetchData(path: "search/plugins", query: [])
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [Any]
+            else { return nil }
+            var enabled: [String] = []
+            for entry in json {
+                if let name = entry as? String {
+                    enabled.append(name)
+                } else if let row = entry as? [String: Any],
+                          (row["enabled"] as? Bool) ?? true,
+                          let name = row["name"] as? String {
+                    enabled.append(name)
+                }
+            }
+            return enabled
+        } catch {
+            writeProbeLog("[engine] searchPlugins failed: \(describe(error))")
+            return nil
+        }
+    }
+
     func startSearch(pattern: String, category: String) async -> Int64? {
         do {
             let data = try await postForData(

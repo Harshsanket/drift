@@ -70,6 +70,7 @@ protocol TorrentEngine: Sendable {
     func refreshRSSItem(path: String)
 
     // Search (A9; server-side plugin search)
+    func searchPlugins() async -> [String]?
     func startSearch(pattern: String, category: String) async -> Int64?
     func stopSearch(id: Int64)
     func deleteSearch(id: Int64)
@@ -142,6 +143,7 @@ extension TorrentEngine {
 
     // MARK: Search (server-side plugin search)
 
+    func searchPlugins() async -> [String]? { nil }
     func startSearch(pattern: String, category: String) async -> Int64? { nil }
     func stopSearch(id: Int64) {}
     func deleteSearch(id: Int64) {}
