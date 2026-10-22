@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// One point of the live speed graph: one per server refresh tick.
+struct SpeedSample: Identifiable, Sendable {
+    let id = UUID()
+    let at: Date
+    let down: Int64
+    let up: Int64
+}
+
 /// App-wide lifetime transfer statistics, recorded client-side (independent
 /// of the qBittorrent server) and persisted across launches. Sources:
 /// qBittorrent session counters (deltas per refresh tick) plus Booster
@@ -31,6 +39,11 @@ final class AppStats {
     private(set) var transferSeconds: TimeInterval
     private(set) var firstConnectedAt: Date?
     private(set) var boosterReceivedBytes: Int64
+
+    /// In-memory ring buffer feeding the Statistics speed graph. Not
+    /// persisted: the graph describes the current run only.
+    private(set) var speedHistory: [SpeedSample] = []
+    private let speedHistoryLimit = 600
 
     private var lastReceived: Int64?
     private var lastSent: Int64?
@@ -70,6 +83,10 @@ final class AppStats {
         lastSent = sentSession
         assertPeak(speed: downloadSpeed, at: now, isDownload: true)
         assertPeak(speed: uploadSpeed, at: now, isDownload: false)
+        speedHistory.append(SpeedSample(at: now, down: downloadSpeed, up: uploadSpeed))
+        if speedHistory.count > speedHistoryLimit {
+            speedHistory.removeFirst(speedHistory.count - speedHistoryLimit)
+        }
         if downloadSpeed > 0 || uploadSpeed > 0 {
             if let tick = lastTickAt, now.timeIntervalSince(tick) > 0, now.timeIntervalSince(tick) < 30 {
                 transferSeconds += now.timeIntervalSince(tick)
@@ -135,6 +152,7 @@ final class AppStats {
         lastSent = nil
         lastTickAt = nil
         lastBoosterBytes = nil
+        speedHistory.removeAll()
         for key in [Keys.peakDownload, Keys.peakDownloadAt, Keys.peakUpload, Keys.peakUploadAt, Keys.received, Keys.sent, Keys.transferSeconds, Keys.firstConnected, Keys.boosterBytes] {
             defaults.removeObject(forKey: key)
         }
