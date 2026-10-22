@@ -416,29 +416,12 @@ private struct MoreOptionsMenu: View {
 
             Divider()
 
-            Toggle(
-                "RSS Reader",
-                isOn: Binding(
-                    get: { model.showRSSPane },
-                    set: { model.toggleRSSPane($0) }
-                )
-            )
-            .disabled(!model.isConnected)
-
             Button {
                 model.showSearchPane = true
             } label: {
                 Label("Server Search…", systemImage: "magnifyingglass")
             }
             .help("Search through server plugins")
-            .disabled(!model.isConnected)
-
-            Button {
-                model.toggleStatsPane(!model.showStatsPane)
-            } label: {
-                Label("Statistics", systemImage: "chart.bar.doc.horizontal")
-            }
-            .help(model.showStatsPane ? "Close statistics page" : "Open statistics page")
             .disabled(!model.isConnected)
 
             Button {
