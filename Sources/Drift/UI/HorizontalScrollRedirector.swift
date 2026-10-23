@@ -645,7 +645,13 @@ struct HorizontalScrollRedirector: NSViewRepresentable {
                     // original outside-click collapse behavior, relocated
                     // from the table's TapGesture so row clicks can carry
                     // their own menu without collapsing the details glass.
-                    if row < 0 {
+                    // The floating footer overlays the table's bottom edge, so
+                    // presses on its tabs/buttons must not count as blank-area
+                    // clicks — ignore the strip it covers.
+                    let footerTop = sv.convert(sv.bounds, to: nil).minY
+                        + (self.model?.footerHeight ?? 0)
+                    let inFooter = location.y < footerTop
+                    if row < 0, !inFooter {
                         self.model?.collapseDetailsFromOutsideClick()
                     }
                     self.log("mouseDown row=\(row) clipBefore=\(clip.bounds.origin)"

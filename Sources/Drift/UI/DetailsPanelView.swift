@@ -1,7 +1,9 @@
+import AppKit
 import SwiftUI
 
 struct DetailsPanelView: View {
     @Bindable var model: ListViewModel
+    @Bindable private var downloads = DownloadCenter.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +19,41 @@ struct DetailsPanelView: View {
                 }
 
                 Spacer()
+
+                HStack(spacing: DesignSystem.Spacing.xs) {
+                    actionButton(
+                        "Boost",
+                        systemImage: "bolt.horizontal.fill",
+                        help: boostHelp,
+                        disabled: !canBoost
+                    ) {
+                        boost()
+                    }
+                    actionButton(
+                        "Remove",
+                        systemImage: "trash",
+                        help: "Remove Torrent…",
+                        disabled: !canModify
+                    ) {
+                        requestRemoval(deleteFiles: false)
+                    }
+                    actionButton(
+                        "Delete Files",
+                        systemImage: "trash.slash",
+                        help: "Remove Torrent and Delete Files…",
+                        disabled: !canModify
+                    ) {
+                        requestRemoval(deleteFiles: true)
+                    }
+                    actionButton(
+                        "Finder",
+                        systemImage: "folder",
+                        help: "Open in Finder",
+                        disabled: model.selectedTorrent?.savePath.isEmpty ?? true
+                    ) {
+                        openInFinder()
+                    }
+                }
             }
             .padding(.bottom, DesignSystem.Spacing.sm)
 
@@ -66,6 +103,89 @@ struct DetailsPanelView: View {
         .opacity(enabled ? 1 : 0.4)
         .help(tab.label)
         .accessibilityLabel(tab.label)
+    }
+
+    private var canModify: Bool {
+        model.selectedTorrent != nil && model.isConnected
+    }
+
+    private var boostTask: TorrentBoostTask? {
+        guard let id = model.selectedTorrent?.id else { return nil }
+        return downloads.boosts.first {
+            $0.hash == id && $0.status != .failed && $0.status != .done
+        }
+    }
+
+    private var canBoost: Bool {
+        guard let torrent = model.selectedTorrent,
+              BoosterSettings.shared.enabled,
+              model.isConnected,
+              boostTask == nil
+        else { return false }
+        return downloads.eligibility(for: torrent.id)?.boostable ?? false
+    }
+
+    private var boostHelp: String {
+        if !BoosterSettings.shared.enabled {
+            return "Connection Booster is off in Settings"
+        }
+        guard let torrent = model.selectedTorrent else {
+            return "Select a torrent to boost"
+        }
+        if !model.isConnected { return "Not connected" }
+        if boostTask != nil { return "Boosting…" }
+        guard let info = downloads.eligibility(for: torrent.id), info.boostable else {
+            return "Boost with Connection Booster (needs HTTP web seeds)"
+        }
+        return "Boost with Connection Booster (\(info.webSeedCount) web seeds)"
+    }
+
+    private func actionButton(
+        _ title: String,
+        systemImage: String,
+        help: String,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(disabled)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func boost() {
+        guard let torrent = model.selectedTorrent else { return }
+        _ = downloads.startBoost(
+            id: torrent.id,
+            name: torrent.name,
+            savePath: NSString(string: torrent.savePath).expandingTildeInPath
+        )
+        WindowOpener.openDownloads?()
+    }
+
+    private func requestRemoval(deleteFiles: Bool) {
+        guard let torrent = model.selectedTorrent else { return }
+        let targets = model.selectedIDs.contains(torrent.id)
+            ? Array(model.selectedIDs)
+            : [torrent.id]
+        model.requestRemoval(targets, deleteFiles: deleteFiles)
+    }
+
+    private func openInFinder() {
+        guard let torrent = model.selectedTorrent else { return }
+        let expanded = NSString(string: torrent.savePath).expandingTildeInPath
+        guard FileManager.default.isReadableFile(atPath: expanded) else {
+            writeProbeLog("[ui] open destination skipped (unreadable) \(expanded)")
+            return
+        }
+        if downloads.openDestinationFolder(expanded) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: expanded)
+        }
     }
 
     @ViewBuilder

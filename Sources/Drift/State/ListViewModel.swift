@@ -136,6 +136,9 @@ final class ListViewModel {
     var pendingAddHandoff: AddSource?
     var showConnectionSheet = false
     var pendingRemoval: Set<String>?
+    /// Whether the confirmation was opened from a “delete files” affordance,
+    /// so the alert leads with file deletion.
+    var pendingRemovalDeletesFiles = false
     private var detailsCache: [String: TorrentDetails] = [:]
     private var detailsFetching = false
     /// Guard so verification hooks on `onAppear` run once even if capture
@@ -839,14 +842,17 @@ final class ListViewModel {
         writeProbeLog("[engine] stop ids=\(ids.sorted().joined(separator: ","))")
     }
 
-    func requestRemoval(_ ids: [String]) {
+    func requestRemoval(_ ids: [String], deleteFiles: Bool = false) {
         guard !ids.isEmpty, isConnected else { return }
         pendingRemoval = Set(ids)
-        writeProbeLog("[engine] removal requested ids=\(ids.sorted().joined(separator: ","))")
+        pendingRemovalDeletesFiles = deleteFiles
+        writeProbeLog("[engine] removal requested ids=\(ids.sorted().joined(separator: ","))"
+            + (deleteFiles ? " (delete files)" : ""))
     }
 
     func cancelRemoval() {
         pendingRemoval = nil
+        pendingRemovalDeletesFiles = false
         writeProbeLog("[engine] removal cancelled")
     }
 
@@ -856,6 +862,7 @@ final class ListViewModel {
         selectedIDs.subtract(ids)
         for id in ids { detailsCache.removeValue(forKey: id) }
         pendingRemoval = nil
+        pendingRemovalDeletesFiles = false
         refresh()
         writeProbeLog("[engine] removed ids=\(ids.sorted().joined(separator: ","))"
             + (deleteFiles ? " (files deleted)" : ""))

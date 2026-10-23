@@ -84,17 +84,26 @@ struct TorrentListView: View {
             }
         }
         .alert(
-            "Remove Torrent?",
+            model.pendingRemovalDeletesFiles ? "Delete Files?" : "Remove Torrent?",
             isPresented: Binding(
                 get: { model.pendingRemoval != nil },
                 set: { if !$0 { model.cancelRemoval() } }
             )
         ) {
-            Button("Remove", role: .destructive) {
-                model.confirmRemoval()
-            }
-            Button("Remove + Delete Files", role: .destructive) {
-                model.confirmRemoval(deleteFiles: true)
+            if model.pendingRemovalDeletesFiles {
+                Button("Delete Files", role: .destructive) {
+                    model.confirmRemoval(deleteFiles: true)
+                }
+                Button("Remove Torrent Only", role: .destructive) {
+                    model.confirmRemoval()
+                }
+            } else {
+                Button("Remove", role: .destructive) {
+                    model.confirmRemoval()
+                }
+                Button("Remove + Delete Files", role: .destructive) {
+                    model.confirmRemoval(deleteFiles: true)
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -151,11 +160,19 @@ struct TorrentListView: View {
 
     private var removalMessage: String {
         guard let ids = model.pendingRemoval else { return "" }
+        let deletes = model.pendingRemovalDeletesFiles
+        let files = deletes
+            ? (ids.count == 1
+                ? " and its downloaded files will be deleted"
+                : " and their downloaded files will be deleted")
+            : ""
         if ids.count == 1, let id = ids.first,
            let torrent = model.torrents.first(where: { $0.id == id }) {
-            return "“\(torrent.name)” will be removed."
+            return "“\(torrent.name)” will be removed\(files)."
         }
-        return "\(ids.count) torrents will be removed."
+        return ids.count == 1
+            ? "1 torrent will be removed\(files)."
+            : "\(ids.count) torrents will be removed\(files)."
     }
 }
 

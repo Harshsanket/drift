@@ -79,47 +79,10 @@ struct GeneralTabView: View {
                         }
                     }
                 }
-
-                piecesSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: 190)
-    }
-
-    private var piecesSection: some View {
-        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
-            HStack {
-                Text("Pieces")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(general.piecesHave) / \(general.piecesTotal)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            .font(.callout)
-
-            Canvas { context, size in
-                context.fill(
-                    Path(CGRect(origin: .zero, size: size)),
-                    with: .color(.primary.opacity(0.08))
-                )
-                let haveWidth = size.width * CGFloat(general.piecesHave)
-                    / CGFloat(max(general.piecesTotal, 1))
-                if haveWidth > 0 {
-                    context.fill(
-                        Path(CGRect(x: 0, y: 0, width: haveWidth, height: size.height)),
-                        with: .color(DesignSystem.Palette.accent)
-                    )
-                }
-            }
-            .frame(height: 8)
-            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Radius.sm))
-            .overlay {
-                RoundedRectangle(cornerRadius: DesignSystem.Radius.sm)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            }
-        }
     }
 
     private func row(_ label: String, @ViewBuilder value: () -> some View) -> some View {

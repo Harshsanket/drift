@@ -11,16 +11,22 @@ struct StatusbarView: View {
         HStack(spacing: DesignSystem.Spacing.lg) {
             HStack(spacing: DesignSystem.Spacing.sm) {
                 connectionIndicator
-                Text(model.connectionState.label)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if model.isConnected,
-                   let stats = model.statistics,
-                   stats.freeSpaceOnDisk > 0 {
-                    Text(DesignSystem.Format.size(stats.freeSpaceOnDisk) + " free")
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                        .help("Free space on the server")
+                if !model.detailsCollapsed,
+                   let general = model.selectedDetails?.general,
+                   general.piecesTotal > 0 {
+                    pieces(general)
+                } else {
+                    Text(model.connectionState.label)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    if model.isConnected,
+                       let stats = model.statistics,
+                       stats.freeSpaceOnDisk > 0 {
+                        Text(DesignSystem.Format.size(stats.freeSpaceOnDisk) + " free")
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                            .help("Free space on the server")
+                    }
                 }
                 // Transient activity (checking/moving) rides the status bar as
                 // animated chips that name the torrent in flight and fold away
@@ -52,6 +58,24 @@ struct StatusbarView: View {
         .lineLimit(1)
         .padding(.horizontal, DesignSystem.Spacing.lg)
         .frame(maxWidth: .infinity, minHeight: DesignSystem.Metrics.statusBarHeight)
+    }
+
+    private func pieces(_ general: GeneralInfo) -> some View {
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            Text("Pieces")
+                .foregroundStyle(.secondary)
+            ProgressView(
+                value: Double(general.piecesHave),
+                total: Double(max(general.piecesTotal, 1))
+            )
+            .progressViewStyle(.linear)
+            .tint(DesignSystem.Palette.accent)
+            .frame(width: 140)
+            Text("\(general.piecesHave) / \(general.piecesTotal)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .help("Pieces downloaded for the selected torrent")
     }
 
     private var transientChips: some View {
