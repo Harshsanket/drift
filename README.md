@@ -142,7 +142,7 @@ Open Drift → **Settings** → enter the Web UI URL
 
 ### 3. Or grab a release build
 
-`Drift-1.1.0-arm64.dmg` from the
+`Drift-1.1.0-arm64.dmg` (or the matching `.zip`) from the
 [Releases](https://github.com/Harshsanket/drift/releases) page, drag to
 Applications, and launch (right-click → **Open** the first time so the
 ad-hoc developer build is allowed).
