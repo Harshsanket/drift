@@ -6,13 +6,13 @@
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)
+![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)
 
 ## Screenshots
 
-| Torrent list + details | Settings |
-| --- | --- |
-| ![Torrent list and details panel](screenshots/main.png) | ![Settings](screenshots/settings.png) |
+| Torrent list + details | Feature cards in Settings | Connection Booster |
+| --- | --- | --- |
+| ![Torrent list and details panel](screenshots/main.png) | ![Feature cards](screenshots/connection-booster-settings.png) | ![Booster downloads](screenshots/connection-booster-downloads.png) |
 
 *(More screenshots live in [`screenshots/`](screenshots).)*
 
@@ -22,9 +22,9 @@ Drift is a lightweight, native macOS BitTorrent client built with Swift 6,
 SwiftUI and Apple's native frameworks, powered by the [qBittorrent](https://www.qbittorrent.org)
 Web API. The transfers themselves always run in qBittorrent — on your Mac,
 a home server, or a seedbox — and Drift is the efficient native frontend
-that talks to it.
+that talks to it. An optional WireGuard tunnel covers Drift's own traffic.
 
-**Status: beta (v1.0.0).** It is in active development; expect rough edges
+**Status: beta (v1.1.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
@@ -32,9 +32,11 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 - **Torrent list** — live status sidebar (All, Downloading, Seeding,
   Completed, Stopped, Queued, Stalled, Error) with counts, plus name,
   status, progress, size and per-torrent speeds; text filter box.
-- **Details panel** — General, Trackers, Peers, Sources and Files tabs;
-  per-file download priorities; add/edit/remove trackers and web seeds,
-  reannounce.
+- **Details dock** — General, Trackers, Peers, Sources and Files tabs in a
+  collapsible bottom dock, with the selected torrent's piece map in the
+  status bar; per-file download priorities; add/edit/remove trackers and
+  web seeds, reannounce; quick Boost, Remove, Delete Files and Finder
+  actions.
 - **Manage torrents** — start / stop / force start / recheck / queue to
   top, up, down, bottom; rename; remove (optionally delete files).
 - Add via **magnet link, URL or .torrent file** (drag & drop; large file
@@ -42,11 +44,28 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 - **Categories and tags** to keep a large library tidy.
 - **Speed control** — set global and alternative speed limits straight on
   the server from Settings.
-- **Search** — qBittorrent's plugin search from a native sheet: start,
-  watch results stream in, stop or delete a run, download results.
+- **WireGuard tunnel** — optional per-app tunnel powered by Partout through
+  a privileged helper: only Drift's own URL sessions use it, the host
+  keeps its normal routes and DNS, and a kill switch blocks egress while
+  the tunnel is down. Paste a WireGuard `.conf` in Settings.
+- **Peer Protection** — qBEE-style anti-leech: flags known leecher
+  clients (Xunlei, Thunder, QQ, Baidu, Xfplay, DLBT, offline downloaders…),
+  media players parked in the swarm, peers that connect but never move
+  data (configurable timeout), and unknown clients from flagged regions.
+  Runs in three modes — Off, Shadow (log only) and Auto-ban — with a
+  client/IP whitelist and a log of recent decisions; bans go straight to
+  the server's `banned_IPs` list.
+- **Connection Booster** — accelerates downloading torrents that expose
+  HTTP web seeds: Drift pauses the torrent, fetches missing pieces over
+  parallel ranged HTTP, verifies each piece against the torrent's SHA-1,
+  writes the files and resumes qBittorrent. Boost tasks and legacy direct
+  downloads live in the Downloads window.
+- **Search** — qBittorrent's plugin search in a full detail pane with
+  plugin management: install, enable/disable, update or remove plugins;
+  watch results stream in, stop or delete a run, and grab results.
 - **RSS** — subscribe to RSS feeds from qBittorrent, read article lists,
   refresh, mark read, and grab items as downloads.
-- **Statistics sheet**, **dock badge** for active downloads, and
+- **Statistics pane**, **dock badge** for active downloads, and
   **notifications when a download completes**.
 - **Menu bar status item** with quick peek and controls, optional.
 - **Power conscious** — adaptive tiered sync (0.35–1.2 s) that speeds up
@@ -59,8 +78,8 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 
 ## How it works
 
-- **DriftApp** sets up the scenes (main window, Settings window, menu bar
-  item) and keeps one shared model.
+- **DriftApp** sets up the scenes (main window, Settings window, Downloads
+  window, menu bar item) and keeps one shared model.
 - **ListViewModel** (`@MainActor`, observable) orchestrates everything:
   connection lifecycle, sync tiers, sidebar statistics, details caches,
   search and RSS state.
@@ -68,17 +87,44 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
   qBittorrent Web API (API 2.x): session-cookie login, form-encoded
   actions, and a delta-based sync loop (`sync/maindata` + per-section
   sync) that adapts its polling interval to activity.
-- The password is stored securely in the **macOS keychain**.
-- `UpdateChecker` polls the repository's GitHub releases for new versions.
+- **LeechGuard** runs peer reviews against every detail refresh and
+  routes ban decisions to the server; **Booster** (`DownloadCenter`) plans
+  and races parallel ranged piece fetches for torrents with HTTP web
+  seeds, with persisted progress for direct downloads.
+- **TunnelService** drives `drift-tunnel-helper`, a root daemon that owns
+  the utun and exposes a loopback-only relay; Partout handles WireGuard,
+  and only Drift's URLs are proxied.
+- The password and WireGuard profile are stored securely in the **macOS
+  keychain**.
+- `UpdateChecker` polls the repository's GitHub releases; Sparkle-backed
+  `UpdateService` verifies EdDSA signatures when an appcast feed is
+  configured.
 
-No third-party packages — the app only uses Foundation, SwiftUI, AppKit
-and URLSession.
+## Third-party packages
+
+Both dependencies are pinned exactly in `Package.swift` for reproducible
+release builds and refreshed with `swift package update`.
+
+- **[Partout](https://github.com/partout-io/partout)** (GPL-3.0) — the
+  WireGuard tunnel core and the prebuilt `PartoutNative` framework used by
+  the app and its privileged helper.
+- **[Sparkle](https://github.com/sparkle-project/Sparkle)** (MIT) — EdDSA
+  update verification and installation. The SwiftUI update surfaces drive
+  the user decision; Sparkle performs the signed swap.
+
+The Drift app itself uses Foundation, SwiftUI, AppKit, URLSession and the
+two packages above.
 
 ## Requirements
 
 - macOS 26 (Tahoe) or later, Apple Silicon (ARM64)
-- A qBittorrent instance with its **Web UI enabled**
-  (tested against qBittorrent 5.2.x; API 2.17)
+- A qBittorrent instance with its **Web UI enabled** and
+  **search plugins** installed for search (Drift can install and manage
+  them from Settings)
+  (tested against qBittorrent 5.2.4; Web API v2.15.1 reported by the
+  server — Drift also tolerates older/newer API leanings)
+- For the optional tunnel: a WireGuard profile and admin approval to start
+  the privileged helper
 
 ## How to make it work
 
@@ -96,7 +142,7 @@ Open Drift → **Settings** → enter the Web UI URL
 
 ### 3. Or grab a release build
 
-`Drift-1.0.0-arm64.dmg` from the
+`Drift-1.1.0-arm64.dmg` from the
 [Releases](https://github.com/Harshsanket/drift/releases) page, drag to
 Applications, and launch (right-click → **Open** the first time so the
 ad-hoc developer build is allowed).

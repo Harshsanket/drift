@@ -707,7 +707,7 @@ struct SettingsView: View {
                             .padding(.vertical, 2)
                             .background(Capsule().fill(.quaternary))
                     }
-                    Text("An open-source qBittorrent client built for macOS.")
+                    Text("An open-source qBittorrent client built for macOS, with an optional WireGuard tunnel.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -718,11 +718,15 @@ struct SettingsView: View {
                 aboutButton("Report an Issue", systemImage: "ladybug", url: Self.issuesURL)
             }
 
-            Text("Proudly made in Mumbai by **Harsh Sanket**.")
+            Text("Proudly made in Mumbai by **Harsh Sanket** · © 2026")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
             Text("Thanks to the qBittorrent engine and its contributors — Drift is a native Mac interface for their Web API.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            Text("Tunnel core: Partout (GPL-3.0). Update plumbing: Sparkle (MIT).")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 

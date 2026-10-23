@@ -1,5 +1,5 @@
 #!/bin/bash
-# Scripts/package-release-app.sh — builds the Drift 1.0 release artifact.
+# Scripts/package-release-app.sh — builds the Drift 1.1 release artifact.
 #
 # Signs with a Developer ID identity when one exists (hardened runtime +
 # timestamp); otherwise falls back to an ad-hoc seal so a runnable artifact
@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION=1.0.0
+VERSION=1.1.0
 BIN=".build/out/Products/Release/Drift"
 APP="dist/Drift.app"
 DMG="dist/Drift-$VERSION-arm64.dmg"
