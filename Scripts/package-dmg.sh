@@ -14,8 +14,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-2.0.0}"
-BUILD="${BUILD:-200}"
+VERSION="${VERSION:-2.1.0}"
+BUILD="${BUILD:-210}"
 TAG="${TAG:-v$VERSION}"
 SKIP_BUILD=0
 [[ "${1:-}" == "--skip-build" ]] && SKIP_BUILD=1
@@ -214,7 +214,7 @@ PUBDATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 cat > "dist/release-notes-$VERSION.md" <<EOF
 # Drift $VERSION
 
-Stage B embedded engine release.
+Maintenance release on the built-in embedded-engine line.
 
 - **Embedded libtorrent 2.1.2** — Drift now ships its own out-of-process
   \`drift-engine\`; no Docker or separate qBittorrent install is required on
@@ -251,7 +251,7 @@ cat > dist/appcast.xml <<EOF
       <sparkle:version>$BUILD</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[Embedded libtorrent engine, parity wave, native Jackett/Prowlarr search.]]></description>
+      <description><![CDATA[Embedded libtorrent engine, reliability hardening and native Jackett/Prowlarr search.]]></description>
       <enclosure url="$ENCLOSURE_URL"
                  length="$SIZE"
                  type="application/octet-stream"

@@ -44,7 +44,7 @@ fi
 
 if [[ -z "$VERSION" ]]; then
     VERSION=$(xcrun plutil -extract CFBundleShortVersionString raw \
-        .build/Drift.app/Contents/Info.plist 2>/dev/null || echo "2.0.0")
+        .build/Drift.app/Contents/Info.plist 2>/dev/null || echo "2.1.0")
 fi
 
 rm -rf "$APP"

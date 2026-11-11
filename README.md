@@ -6,7 +6,7 @@
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-blue)
+![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-blue)
 
 ## Screenshots
 
@@ -25,7 +25,7 @@ setup — no Docker, no separate qBittorrent install. The original
 [qBittorrent](https://www.qbittorrent.org) Web API mode is retained as an
 opt-in for remote servers and seedboxes.
 
-**Status: beta (v2.0.0).** It is in active development; expect rough edges
+**Status: beta (v2.1.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
@@ -146,7 +146,7 @@ Foundation, SwiftUI, AppKit, URLSession and the two packages above.
 
 ### 1. Grab a release build (embedded mode)
 
-`Drift-2.0.0-arm64.dmg` — or the matching `Drift-2.0.0-arm64.zip` — from
+`Drift-2.1.0-arm64.dmg` — or the matching `Drift-2.1.0-arm64.zip` — from
 the [Releases](https://github.com/Harshsanket/drift/releases) page. Open
 the DMG and drag Drift to Applications (or unzip and move `Drift.app`).
 
@@ -180,8 +180,8 @@ Release DMG + ZIP (ad-hoc, EULA/background, Sparkle appcast):
 
 ```sh
 ./Scripts/package-dmg.sh
-# → dist/Drift-2.0.0-arm64.dmg
-# → dist/Drift-2.0.0-arm64.zip
+# → dist/Drift-2.1.0-arm64.dmg
+# → dist/Drift-2.1.0-arm64.zip
 # → dist/appcast.xml + release notes + SHA-256 files
 ```
 
