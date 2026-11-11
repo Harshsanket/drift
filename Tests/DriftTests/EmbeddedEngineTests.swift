@@ -293,6 +293,109 @@ final class EmbeddedEngineTests: XCTestCase {
         _ = try await waitUntil(timeout: 10) { embedded.loadTorrents().isEmpty }
     }
 
+
+    func testExternalSearchResultsFeedAdd() async throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let binary = root.appendingPathComponent("engine/build/drift-engine")
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else {
+            throw XCTSkip("engine/build/drift-engine missing — run engine/build.sh first")
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drift-embedded-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        stateDir = dir
+        let socket = "/tmp/drift-embedded-\(UUID().uuidString.prefix(8)).sock"
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let hash = "cafebabe0123456789abcdef0123456789abcdef"
+        StubURLProtocol.handler = { request in
+            guard request.url?.path.contains("results") == true else { return (404, Data()) }
+            let body = """
+            {"Results":[{"Title":"Search Fixture","MagnetUri":"magnet:?xt=urn:btih:\(hash)","Size":42,"Seeders":7,"Peers":1,"Tracker":"Fixture"}]}
+            """
+            return (200, Data(body.utf8))
+        }
+        defer { StubURLProtocol.handler = nil }
+
+        let embedded = EmbeddedEngine(
+            stateDir: dir,
+            socketPath: socket,
+            binaryURL: binary,
+            searchConfiguration: ExternalSearchConfiguration(
+                baseURL: "http://127.0.0.1:9117",
+                apiKey: "K"
+            ),
+            urlSession: session
+        )
+        engine = embedded
+        _ = try await embedded.start()
+
+        let searchID = await embedded.startSearch(pattern: "fixture", category: "all")
+        let id = try XCTUnwrap(searchID)
+        let finished = try await waitUntil(timeout: 10) {
+            await embedded.searchResults(id: id)?.status == "Stopped"
+        }
+        XCTAssertTrue(finished)
+        let searchResponse = await embedded.searchResults(id: id)
+        let response = try XCTUnwrap(searchResponse)
+        XCTAssertEqual(response.results.count, 1)
+        let result = try XCTUnwrap(response.results.first)
+        XCTAssertEqual(result.fileName, "Search Fixture")
+        XCTAssertEqual(result.seeders, 7)
+
+        embedded.addTorrent(source: .magnetOrURL(result.fileURL), options: AddOptions())
+        let added = try await waitUntil(timeout: 10) {
+            embedded.loadTorrents().contains { $0.id == hash }
+        }
+        XCTAssertTrue(added)
+        embedded.remove(ids: [hash], deleteFiles: false)
+        _ = try await waitUntil(timeout: 10) { embedded.loadTorrents().isEmpty }
+    }
+
+    func testTorrentURLAddFetchesBytes() async throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let binary = root.appendingPathComponent("engine/build/drift-engine")
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else {
+            throw XCTSkip("engine/build/drift-engine missing — run engine/build.sh first")
+        }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drift-embedded-url-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        stateDir = dir
+        let socket = "/tmp/drift-embedded-\(UUID().uuidString.prefix(8)).sock"
+
+        let fixture = "ZDg6YW5ub3VuY2UyNzpodHRwOi8vMTI3LjAuMC4xOjEvYW5ub3VuY2U0OmluZm9kNjpsZW5ndGhpMTAyNGU0Om5hbWU4OnRlc3QuYmluMTI6cGllY2UgbGVuZ3RoaTE2Mzg0ZTY6cGllY2VzMjA6AAAAAAAAAAAAAAAAAAAAAAAAAABlODp1cmwtbGlzdDIzOmh0dHA6Ly8xMjcuMC4wLjE6MS9maWxlZQ=="
+        let fixtureData = try XCTUnwrap(Data(base64Encoded: fixture))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        StubURLProtocol.handler = { _ in (200, fixtureData) }
+        defer { StubURLProtocol.handler = nil }
+
+        let embedded = EmbeddedEngine(
+            stateDir: dir,
+            socketPath: socket,
+            binaryURL: binary,
+            urlSession: session
+        )
+        engine = embedded
+        _ = try await embedded.start()
+        embedded.addTorrent(
+            source: .magnetOrURL("http://127.0.0.1:9117/fixture.torrent"),
+            options: AddOptions()
+        )
+        let added = try await waitUntil(timeout: 10) {
+            embedded.loadTorrents().contains { $0.id.count == 40 }
+        }
+        XCTAssertTrue(added)
+        let hash = try XCTUnwrap(embedded.loadTorrents().first { $0.id.count == 40 }?.id)
+        XCTAssertEqual(embedded.loadTorrents().first { $0.id == hash }?.name, "test.bin")
+        embedded.remove(ids: [hash], deleteFiles: false)
+        _ = try await waitUntil(timeout: 10) { embedded.loadTorrents().isEmpty }
+    }
+
     private func waitUntil(
         timeout: TimeInterval,
         condition: @escaping () async -> Bool

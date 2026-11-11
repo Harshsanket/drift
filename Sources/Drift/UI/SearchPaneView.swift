@@ -37,7 +37,7 @@ struct SearchPaneView: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Server Search")
+                Text(model.isEmbeddedEngine ? "Search" : "Server Search")
                     .font(.headline)
                 Text(headerSubtitle)
                     .font(.caption)
@@ -51,17 +51,27 @@ struct SearchPaneView: View {
                     .controlSize(.small)
             }
 
-            Button("Manage Plugins…") {
+            Button(model.isEmbeddedEngine ? "Search Settings…" : "Manage Plugins…") {
                 openWindow(id: "settings")
             }
             .buttonStyle(.bordered)
-            .help("Enable, install, update, or remove search plugins")
+            .help(model.isEmbeddedEngine
+                  ? "Configure Jackett or Prowlarr"
+                  : "Enable, install, update, or remove search plugins")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
 
     private var headerSubtitle: String {
+        if model.isEmbeddedEngine {
+            if model.searchRunning { return "Searching Jackett/Prowlarr…" }
+            let configuration = ExternalSearchSettings.shared.configuration
+            guard configuration.isConfigured else {
+                return "Configure Jackett or Prowlarr in Settings → External Search."
+            }
+            return "\(configuration.providerHint) · external indexer search"
+        }
         if model.searchRunning {
             return "Searching every enabled plugin on the server…"
         }
@@ -83,7 +93,10 @@ struct SearchPaneView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("Search pattern (all enabled plugins)", text: $pattern)
+            TextField(
+                model.isEmbeddedEngine ? "Search query" : "Search pattern (all enabled plugins)",
+                text: $pattern
+            )
                 .textFieldStyle(.roundedBorder)
                 .focused($patternFocused)
                 .onSubmit(submit)
@@ -123,7 +136,9 @@ struct SearchPaneView: View {
         } else {
             emptyState(
                 icon: "globe",
-                text: "Search the connected qBittorrent through its plugins; results land here as they arrive."
+                text: model.isEmbeddedEngine
+                    ? "Search Jackett or Prowlarr; results land here as they arrive."
+                    : "Search the connected qBittorrent through its plugins; results land here as they arrive."
             )
         }
     }

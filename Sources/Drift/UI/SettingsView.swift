@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Bindable private var app = AppSettings.shared
     @Bindable private var connection = ConnectionSettings.shared
     @Bindable private var engineSettings = EngineSettings.shared
+    @Bindable private var externalSearch = ExternalSearchSettings.shared
     @Bindable private var speed = SpeedSettings.shared
     @Bindable private var leech = LeechGuard.shared
     @Bindable private var booster = BoosterSettings.shared
@@ -24,6 +25,9 @@ struct SettingsView: View {
     @State private var whitelistClientText = ""
     @State private var whitelistIPText = ""
     @State private var serverBans: [String] = []
+    @State private var externalSearchURL = ""
+    @State private var externalSearchKey = ""
+    @State private var externalSearchStatus: String?
 
     @State private var tunnelProfileText = ""
     @State private var startingTunnel = false
@@ -150,6 +154,37 @@ struct SettingsView: View {
                 searchPluginsSection
             }
             }
+            if engineSettings.mode == .embedded {
+            Section("External Search") {
+                TextField("Jackett / Prowlarr URL", text: $externalSearchURL)
+                    .textFieldStyle(.roundedBorder)
+                    .placeholder(when: externalSearchURL.isEmpty) {
+                        Text("http://localhost:9117").foregroundStyle(.tertiary)
+                    }
+                SecureField("API key", text: $externalSearchKey)
+                    .textFieldStyle(.roundedBorder)
+                if let status = externalSearchStatus {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Embedded search queries Jackett or Prowlarr directly. The API key is stored in the Keychain; no search plugins are downloaded or executed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Save") {
+                        externalSearch.save(baseURL: externalSearchURL, apiKey: externalSearchKey)
+                        externalSearchKey = externalSearch.apiKey
+                        externalSearchStatus = externalSearch.isConfigured
+                            ? "Configured — \(externalSearch.configuration.providerHint) at \(externalSearch.baseURL)"
+                            : "Enter a URL and API key."
+                        writeProbeLog("[settings] external search saved configured=\(externalSearch.isConfigured)")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            }
             }
 
             Section("Connection Booster") {
@@ -253,6 +288,11 @@ struct SettingsView: View {
             whitelistClientText = leech.config.whitelistClients.joined(separator: "\n")
             whitelistIPText = leech.config.whitelistIPs.joined(separator: "\n")
             tunnelProfileText = Keychain.password(account: "tunnel.wireguard") ?? ""
+            externalSearchURL = externalSearch.baseURL
+            externalSearchKey = externalSearch.apiKey
+            externalSearchStatus = externalSearch.isConfigured
+                ? "Configured — \(externalSearch.configuration.providerHint) at \(externalSearch.baseURL)"
+                : nil
             writeProbeLog("[settings] shown")
             WindowOpener.openSettings = { openWindow(id: "settings") }
             openWindow(id: "main")

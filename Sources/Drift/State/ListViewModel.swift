@@ -111,6 +111,7 @@ final class ListViewModel {
     private var pendingPasswordOverride: String?
 
     var isConnected: Bool { connectionState.isConnected }
+    var isEmbeddedEngine: Bool { engine is EmbeddedEngine }
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
@@ -1015,6 +1016,14 @@ final class ListViewModel {
                     try? await Task.sleep(for: .milliseconds(300))
                     continue
                 }
+                if engine is EmbeddedEngine {
+                    // External search has no server plugin list; the pane
+                    // and Settings surface Jackett/Prowlarr instead.
+                    searchPlugins = []
+                    searchPluginsLoaded = true
+                    searchPluginsStatus = nil
+                    return
+                }
                 searchPluginsBusy = true
                 await refreshSearchPlugins(using: engine)
                 searchPluginsBusy = false
@@ -1239,7 +1248,14 @@ final class ListViewModel {
         searchRunning = true
         searchQuery = trimmed
         Task {
-            if let plugins = await engine.searchPlugins(), plugins.isEmpty {
+            if engine is EmbeddedEngine {
+                guard ExternalSearchSettings.shared.isConfigured else {
+                    searchRunning = false
+                    searchNotice = "Configure Jackett or Prowlarr in Settings → External Search, then try again."
+                    writeProbeLog("[search] external search not configured")
+                    return
+                }
+            } else if let plugins = await engine.searchPlugins(), plugins.isEmpty {
                 searchRunning = false
                 searchNotice = "qBittorrent has no search plugins enabled. Install or enable one in Settings → Search Plugins (or qBittorrent’s Search tab), then try again."
                 writeProbeLog("[search] no enabled plugins")

@@ -522,8 +522,14 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private let stateDir: URL
     private let socketPath: String
     private let binaryURL: URL?
+    private let searchConfigurationOverride: ExternalSearchConfiguration?
+    private let urlSession: URLSession
     private let store = EmbeddedStore()
     private let stateLock = NSLock()
+    private let searchLock = NSLock()
+    private var searchStates: [Int64: (status: String, results: [SearchResult])] = [:]
+    private var searchTasks: [Int64: Task<Void, Never>] = [:]
+    private var nextSearchID: Int64 = 1
     private var supervisorTask: Task<Void, Never>?
     private var connection: EmbeddedConnection?
     private var process: Process?
@@ -533,13 +539,21 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private var readyWaiters: [CheckedContinuation<String, Error>] = []
     private var startError: Error?
 
-    init(stateDir: URL? = nil, socketPath: String? = nil, binaryURL: URL? = nil) {
+    init(
+        stateDir: URL? = nil,
+        socketPath: String? = nil,
+        binaryURL: URL? = nil,
+        searchConfiguration: ExternalSearchConfiguration? = nil,
+        urlSession: URLSession = .shared
+    ) {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         let defaultDir = support.appendingPathComponent("Drift/engine", isDirectory: true)
         self.stateDir = stateDir ?? defaultDir
         self.socketPath = socketPath ?? defaultDir.appendingPathComponent("engine.sock").path
         self.binaryURL = binaryURL
+        self.searchConfigurationOverride = searchConfiguration
+        self.urlSession = urlSession
     }
 
     var isConnected: Bool {
@@ -936,30 +950,49 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
 
     func addTorrent(source: AddSource, options: AddOptions) -> TorrentSummary {
         let placeholder = Self.placeholder(for: source)
-        var request: [String: Any] = [
-            "op": "add",
-            "options": Self.optionsDictionary(options),
-        ]
+        let optionsDictionary = Self.optionsDictionary(options)
 
         switch source {
         case .magnetOrURL(let text):
-            request["magnet"] = text
+            let lower = text.lowercased()
+            if lower.hasPrefix("magnet:") || lower.contains("xt=urn:btih") {
+                submitAdd([
+                    "op": "add",
+                    "magnet": text,
+                    "options": optionsDictionary,
+                ], placeholder: placeholder)
+            } else if let url = URL(string: text),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" {
+                store.upsert(placeholder)
+                notifyUpdate()
+                downloadAndAdd(url, options: optionsDictionary, placeholder: placeholder)
+            } else {
+                writeProbeLog("[embedded] add rejected source=\(text.prefix(40))")
+            }
         case .torrentFile(let url):
             guard let data = try? Data(contentsOf: url), data.count <= 100 * 1024 * 1024 else {
                 writeProbeLog("[embedded] add rejected file=\(url.lastPathComponent)")
                 return placeholder
             }
-            request["torrent"] = data.base64EncodedString()
+            submitAdd([
+                "op": "add",
+                "torrent": data.base64EncodedString(),
+                "options": optionsDictionary,
+            ], placeholder: placeholder)
         }
+        return placeholder
+    }
 
+    private func submitAdd(_ request: [String: Any], placeholder: TorrentSummary) {
         store.upsert(placeholder)
         notifyUpdate()
         writeProbeLog("[embedded] add id=\(placeholder.id) name=\(placeholder.name)")
-
+        let message = EngineMessage(raw: request)
         Task { [weak self] in
             guard let self else { return }
             do {
-                let response = try await self.request(request)
+                let response = try await self.request(message)
                 if let id = response["id"] as? String {
                     writeProbeLog("[embedded] add accepted id=\(id)")
                 }
@@ -972,7 +1005,44 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
                 self.notifyUpdate()
             }
         }
-        return placeholder
+    }
+
+    /// Search results may point at a .torrent URL rather than a magnet. Fetch
+    /// it with the same HTTP stack and add it as a torrent file.
+    private func downloadAndAdd(
+        _ url: URL,
+        options: [String: Any],
+        placeholder: TorrentSummary
+    ) {
+        let session = urlSession
+        let optionsMessage = EngineMessage(raw: options)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 30
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      data.count <= 100 * 1024 * 1024
+                else {
+                    throw EmbeddedEngineError.protocolError("torrent download rejected")
+                }
+                let message = EngineMessage(raw: [
+                    "op": "add",
+                    "torrent": data.base64EncodedString(),
+                    "options": optionsMessage.raw,
+                ])
+                _ = try await self.request(message)
+                if let connection = self.currentConnection() {
+                    try? await self.refresh(using: connection)
+                }
+            } catch {
+                writeProbeLog("[embedded] torrent URL add failed: \(error.localizedDescription)")
+                self.store.remove([placeholder.id])
+                self.notifyUpdate()
+            }
+        }
     }
 
     func start(ids: [String]) {
@@ -1197,6 +1267,79 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         return (response["upload"] as? NSNumber)?.int64Value
     }
 
+    // MARK: External search (E4)
+
+    func startSearch(pattern: String, category: String) async -> Int64? {
+        let configuration: ExternalSearchConfiguration?
+        if let override = searchConfigurationOverride {
+            configuration = override
+        } else {
+            configuration = await MainActor.run { ExternalSearchSettings.shared.configuration }
+        }
+        guard let configuration, configuration.isConfigured else { return nil }
+
+        let id: Int64 = searchLock.withLock {
+            let value = nextSearchID
+            nextSearchID += 1
+            searchStates[value] = (status: "Running", results: [])
+            return value
+        }
+
+        let session = urlSession
+        let task = Task { [weak self] in
+            do {
+                let results = try await ExternalSearchClient(session: session).search(
+                    configuration: configuration,
+                    query: pattern,
+                    category: category
+                )
+                self?.finishSearch(id, results: results)
+            } catch {
+                writeProbeLog("[search] external failed: \(error.localizedDescription)")
+                self?.finishSearch(id, results: [])
+            }
+        }
+        searchLock.withLock {
+            searchTasks[id] = task
+        }
+        writeProbeLog("[search] external started id=\(id)")
+        return id
+    }
+
+    func searchResults(id: Int64) async -> (status: String, results: [SearchResult])? {
+        searchLock.withLock {
+            searchStates[id]
+        }
+    }
+
+    func stopSearch(id: Int64) {
+        searchLock.lock()
+        let task = searchTasks[id]
+        if var state = searchStates[id] {
+            state.status = "Stopped"
+            searchStates[id] = state
+        }
+        searchLock.unlock()
+        task?.cancel()
+        writeProbeLog("[search] external stopped id=\(id)")
+    }
+
+    func deleteSearch(id: Int64) {
+        searchLock.lock()
+        let task = searchTasks.removeValue(forKey: id)
+        searchStates.removeValue(forKey: id)
+        searchLock.unlock()
+        task?.cancel()
+    }
+
+    private func finishSearch(_ id: Int64, results: [SearchResult]) {
+        searchLock.lock()
+        searchStates[id] = (status: "Stopped", results: results)
+        searchTasks[id] = nil
+        searchLock.unlock()
+        writeProbeLog("[search] external finished id=\(id) results=\(results.count)")
+    }
+
     func applyPreferences(_ values: [String: Any]) {
         // Only the global speed limits map onto the embedded session in E3;
         // alternative limits are a qBittorrent scheduling feature.
@@ -1230,10 +1373,16 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private static func placeholder(for source: AddSource) -> TorrentSummary {
         switch source {
         case .magnetOrURL(let text):
+            let httpName = URL(string: text).flatMap { url -> String? in
+                let scheme = url.scheme?.lowercased() ?? ""
+                guard scheme == "http" || scheme == "https" else { return nil }
+                let name = url.deletingPathExtension().lastPathComponent
+                return name.isEmpty ? url.host : name
+            }
             let hash = magnetHash(in: text) ?? "adding-" + String(UUID().uuidString.prefix(8))
             return TorrentSummary(
                 id: hash,
-                name: magnetName(in: text) ?? "Magnet link",
+                name: magnetName(in: text) ?? httpName ?? "Torrent link",
                 status: .downloading,
                 progress: 0,
                 size: 0,
