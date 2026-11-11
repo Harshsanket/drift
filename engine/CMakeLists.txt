@@ -24,6 +24,10 @@ set(python-bindings OFF CACHE BOOL "" FORCE)
 set(webtorrent OFF CACHE BOOL "" FORCE)
 
 # Homebrew is the supported build environment on this Mac (README).
+# Ship a self-contained binary: static Boost + OpenSSL (D20 DMG must not
+# depend on Homebrew dylibs at the user's machine).
+set(Boost_USE_STATIC_LIBS ON)
+set(OPENSSL_USE_STATIC_LIBS TRUE)
 find_package(Boost 1.70 REQUIRED COMPONENTS json)
 find_package(OpenSSL REQUIRED)
 

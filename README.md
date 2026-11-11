@@ -6,7 +6,7 @@
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)
+![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue)
 
 ## Screenshots
 
@@ -19,16 +19,21 @@
 ## What is Drift?
 
 Drift is a lightweight, native macOS BitTorrent client built with Swift 6,
-SwiftUI and Apple's native frameworks, powered by the [qBittorrent](https://www.qbittorrent.org)
-Web API. The transfers themselves always run in qBittorrent — on your Mac,
-a home server, or a seedbox — and Drift is the efficient native frontend
-that talks to it. An optional WireGuard tunnel covers Drift's own traffic.
+SwiftUI and Apple's native frameworks. It ships its own out-of-process
+**embedded libtorrent engine** (`drift-engine`) so the DMG works with zero
+setup — no Docker, no separate qBittorrent install. The original
+[qBittorrent](https://www.qbittorrent.org) Web API mode is retained as an
+opt-in for remote servers and seedboxes.
 
-**Status: beta (v1.1.0).** It is in active development; expect rough edges
+**Status: beta (v1.2.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
 
+- **Embedded engine (default)** — a bundled arm64 `drift-engine` built on
+  libtorrent 2.1.2, supervised as a child process over a private Unix
+  socket. Fresh installs need no server; the qBittorrent Web API mode stays
+  available in **Settings → Torrent Engine**.
 - **Torrent list** — live status sidebar (All, Downloading, Seeding,
   Completed, Stopped, Queued, Stalled, Error) with counts, plus name,
   status, progress, size and per-torrent speeds; text filter box.
@@ -60,9 +65,10 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
   parallel ranged HTTP, verifies each piece against the torrent's SHA-1,
   writes the files and resumes qBittorrent. Boost tasks and legacy direct
   downloads live in the Downloads window.
-- **Search** — qBittorrent's plugin search in a full detail pane with
-  plugin management: install, enable/disable, update or remove plugins;
-  watch results stream in, stop or delete a run, and grab results.
+- **Search** — server mode uses qBittorrent's plugin search (install,
+  enable/disable, update or remove). Embedded mode queries **Jackett or
+  Prowlarr** natively (base URL + Keychain API key) and feeds the result
+  straight into the built-in engine.
 - **RSS** — subscribe to RSS feeds from qBittorrent, read article lists,
   refresh, mark read, and grab items as downloads.
 - **Statistics pane**, **dock badge** for active downloads, and
@@ -83,6 +89,10 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 - **ListViewModel** (`@MainActor`, observable) orchestrates everything:
   connection lifecycle, sync tiers, sidebar statistics, details caches,
   search and RSS state.
+- **EmbeddedEngine** supervises `drift-engine` (C++17 + libtorrent 2.1.2)
+  over a length-prefixed JSON protocol on a Unix socket, with resume
+  persistence, heartbeats, crash restart and the same `TorrentEngine`
+  surface as server mode. The engine is arm64-only and statically linked.
 - **WebAPIEngine** is a dependency-free `URLSession` client for the
   qBittorrent Web API (API 2.x): session-cookie login, form-encoded
   actions, and a delta-based sync loop (`sync/maindata` + per-section
@@ -112,15 +122,17 @@ release builds and refreshed with `swift package update`.
   update verification and installation. The SwiftUI update surfaces drive
   the user decision; Sparkle performs the signed swap.
 
-The Drift app itself uses Foundation, SwiftUI, AppKit, URLSession and the
-two packages above.
+The embedded engine also uses **libtorrent 2.1.2** (BSD-3-Clause),
+**Boost** (BSL-1.0) and **OpenSSL 3** (Apache-2.0); attribution ships in
+`engine/licenses/` and inside the app bundle. The Drift app itself uses
+Foundation, SwiftUI, AppKit, URLSession and the two packages above.
 
 ## Requirements
 
 - macOS 26 (Tahoe) or later, Apple Silicon (ARM64)
-- A qBittorrent instance with its **Web UI enabled** and
-  **search plugins** installed for search (Drift can install and manage
-  them from Settings)
+- **Embedded mode (default):** nothing else — the engine is in the app.
+- **Server mode (optional):** a qBittorrent instance with its **Web UI
+  enabled**; search plugins are needed only for server-mode search
   (tested against qBittorrent 5.2.4; Web API v2.15.1 reported by the
   server — Drift also tolerates older/newer API leanings)
 - For the optional tunnel: a WireGuard profile and admin approval to start
@@ -128,45 +140,55 @@ two packages above.
 
 ## How to make it work
 
-### 1. Enable the qBittorrent Web UI
+### 1. Grab a release build (embedded mode)
 
-In qBittorrent: **Tools → Options → Web UI** → enable *"Web User
-Interface (Remote control)"*, pick a port (e.g. 8080) and set a
-username/password.
+`Drift-1.2.0-arm64.dmg` from the
+[Releases](https://github.com/Harshsanket/drift/releases) page. Drag Drift
+to Applications and launch.
 
-### 2. Connect Drift
+This build is ad-hoc signed and not notarized. On first launch macOS may
+block it: open **System Settings → Privacy & Security → Open Anyway**, or
+run `xattr -dr com.apple.quarantine /Applications/Drift.app`. Only do this
+for a DMG from Drift's official Releases page.
 
-Open Drift → **Settings** → enter the Web UI URL
-(`http://<host>:<port>`), username and password → **Test Connection** →
-**Save**. The password is kept in your keychain.
+That is the whole setup for embedded mode. Downloads live in
+`~/Downloads` or the destination you pick in the Add sheet.
 
-### 3. Or grab a release build
+### 2. Optional: use a qBittorrent server
 
-`Drift-1.1.0-arm64.dmg` (or the matching `.zip`) from the
-[Releases](https://github.com/Harshsanket/drift/releases) page, drag to
-Applications, and launch (right-click → **Open** the first time so the
-ad-hoc developer build is allowed).
+Open **Settings → Torrent Engine → qBittorrent server**, then enter the
+Web UI URL (`http://<host>:<port>`), username and password → **Test
+Connection** → **Save**. The password is kept in your keychain. In
+qBittorrent enable **Tools → Options → Web UI**.
 
-### 4. Build from source
+### 3. Build from source
 
 ```sh
 git clone https://github.com/Harshsanket/drift
 cd drift
+(cd engine && ./build.sh)           # static libtorrent engine (arm64)
 swift build --arch arm64
 ./Scripts/package-dev-app.sh        # → .build/Drift.app
 open .build/Drift.app
 ```
 
+Release DMG (ad-hoc, EULA/background, Sparkle appcast):
+
+```sh
+./Scripts/package-dmg.sh            # → dist/Drift-1.2.0-arm64.dmg
+```
+
 Run the unit suite with `swift test --arch arm64`.
 
-> Building needs a recent Xcode with the macOS 26 SDK and
-> `xcode-select` pointing at it.
+> Building needs a recent Xcode with the macOS 26 SDK, CMake, and
+> Homebrew `boost` + `openssl@3` (the engine links them statically).
 
 ## Languages used
 
 - **Swift** (SwiftUI, AppKit, Swift Concurrency) — the entire app
-- **Swift Package Manager** — build system and tests
-- **Bash** — dev packaging scripts
+- **C++17 + libtorrent 2.1.2** — the embedded engine (`engine/`)
+- **Swift Package Manager / CMake** — app + engine build systems
+- **Bash** — dev/release packaging scripts
 
 ## Thanks
 

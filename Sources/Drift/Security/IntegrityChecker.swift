@@ -208,6 +208,10 @@ enum FileInventory {
             if relative == "Resources/IntegrityManifest.json" { continue }
             if relative.hasSuffix("IntegrityManifest.json.sig") { continue }
             if relative.hasPrefix("_CodeSignature/") || relative.contains("/_CodeSignature/") { continue }
+            // The main executable is sealed by codesign and is re-signed
+            // after the resource manifest is written; its Mach-O signature
+            // changes its own bytes, so it cannot also be hashed here.
+            if relative == "MacOS/Drift" { continue }
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
                   values.isRegularFile == true
             else { continue }

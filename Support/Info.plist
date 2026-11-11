@@ -11,9 +11,9 @@
 	<key>CFBundleExecutable</key>
 	<string>Drift</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.0</string>
+	<string>1.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>120</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleURLTypes</key>
@@ -44,6 +44,8 @@
 			<string>Default</string>
 		</dict>
 	</array>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
