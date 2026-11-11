@@ -29,7 +29,12 @@ find_package(OpenSSL REQUIRED)
 
 add_subdirectory(third_party/libtorrent EXCLUDE_FROM_ALL)
 
-add_executable(drift-engine src/main.cpp)
+add_executable(drift-engine
+  src/main.cpp
+  src/engine.cpp
+  src/uds_server.cpp
+  src/selftest.cpp
+)
 target_link_libraries(drift-engine PRIVATE torrent-rasterbar Boost::json OpenSSL::SSL OpenSSL::Crypto)
 target_compile_definitions(drift-engine PRIVATE
   DRIFT_ENGINE_VERSION="0.1.0"
