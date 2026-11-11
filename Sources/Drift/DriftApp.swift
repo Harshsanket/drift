@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct DriftApp: App {
@@ -8,6 +9,15 @@ struct DriftApp: App {
         let model = ListViewModel()
         _model = State(initialValue: model)
         StatusItemController.shared.install(model: model)
+        // The embedded engine is a child process; stop it explicitly on the
+        // normal quit path (its own watchdog reaps it after a crash).
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            EmbeddedEngine.shared.terminateNow()
+        }
         // Supply-chain self-check: when a release manifest is embedded,
         // verify the bundle at launch. Dev builds (no manifest) report
         // `manifestMissing` without raising a fuss.

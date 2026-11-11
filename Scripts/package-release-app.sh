@@ -36,6 +36,13 @@ echo "== assembling $APP =="
 rm -rf "$APP" "$DMG"
 mkdir -p "$APP/Contents/MacOS"
 cp "$BIN" "$APP/Contents/MacOS/Drift"
+ENGINE="engine/build/drift-engine"
+if [[ -f "$ENGINE" ]]; then
+    cp "$ENGINE" "$APP/Contents/MacOS/drift-engine"
+else
+    echo "error: embedded engine missing — run engine/build.sh first" >&2
+    exit 1
+fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -75,6 +82,7 @@ IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
 
 if [ -n "$IDENTITY" ]; then
     echo "identity: $IDENTITY (hardened runtime, timestamped)"
+    codesign --force --options runtime --timestamp -s "$IDENTITY" "$APP/Contents/MacOS/drift-engine"
     codesign --force --options runtime --timestamp -s "$IDENTITY" "$APP"
     SIGNING="Developer ID: $IDENTITY"
 else
@@ -82,6 +90,7 @@ else
     echo "  → notarization requires an Apple Developer account."
     echo "  → falling back to ad-hoc sealed artifact (run locally only;"
     echo "     Gatekeeper will block it on other Macs until notarized)."
+    codesign --force --options runtime -s - "$APP/Contents/MacOS/drift-engine"
     codesign --force --options runtime -s - "$APP"
     SIGNING="ad-hoc (notarization blocked: no Apple Developer credentials)"
 fi

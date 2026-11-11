@@ -90,7 +90,10 @@ enum ConnectionState: Equatable {
         switch self {
         case .disconnected: "Not connected"
         case .connecting: "Connecting…"
-        case .connected(let version): "Connected — qBittorrent \(version)"
+        case .connected(let version):
+            version == "embedded"
+                ? "Connected — Embedded engine"
+                : "Connected — qBittorrent \(version)"
         case .failed: "Not connected"
         }
     }
@@ -182,6 +185,11 @@ final class ListViewModel {
         ) { [weak self] _ in
             Task { @MainActor in self?.applySpeedSettings() }
         }
+        NotificationCenter.default.addObserver(
+            forName: .driftEngineModeChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.engineModeChanged() }
+        }
         refresh()
         if engine == nil, !connectionState.isConnected {
             Task { await startConnection() }
@@ -195,6 +203,13 @@ final class ListViewModel {
         // Verification-only: lets UI probes run without the sheet in the way.
         guard !ProcessInfo.processInfo.arguments.contains("--no-auto-connect") else {
             writeProbeLog("[sync] auto-connect suppressed")
+            return
+        }
+        if EngineSettings.shared.mode == .embedded {
+            await connectRealBackend()
+            if !isConnected {
+                writeProbeLog("[sync] embedded engine unavailable")
+            }
             return
         }
         guard ConnectionSettings.shared.lastVersion != nil else {
@@ -212,6 +227,7 @@ final class ListViewModel {
     /// endpoint actually changed; a redundant save against the live endpoint
     /// leaves the running engine alone.
     private func connectionSettingsChanged() {
+        guard EngineSettings.shared.mode == .server else { return }
         let settings = ConnectionSettings.shared
         let key = "\(settings.baseUrl)|\(settings.username)"
         guard !isConnected || key != connectedKey else { return }
@@ -243,9 +259,14 @@ final class ListViewModel {
     }
 
     private func performConnect(passwordOverride: String?) async {
+        if EngineSettings.shared.mode == .embedded {
+            await connectEmbedded()
+            return
+        }
         writeProbeLog(
             "[sync] connect attempt user=\(ConnectionSettings.shared.username) override=\(passwordOverride != nil)"
         )
+        await EmbeddedEngine.shared.stop()
         let settings = ConnectionSettings.shared
         guard let url = WebAPIEngine.url(from: settings.baseUrl) else {
             connectionState = .failed(message: WebAPIError.invalidURL.message)
@@ -324,6 +345,48 @@ final class ListViewModel {
         }
     }
 
+    /// Embedded mode: no URL/credentials; the child process is the backend.
+    /// The supervisor owns reconnects, so this mostly wires callbacks and
+    /// surfaces the first failure.
+    private func connectEmbedded() async {
+        let previousVersion = connectionState.version
+        connectionState = .connecting
+        let embedded = EmbeddedEngine.shared
+        embedded.onUpdate = { [weak self] in self?.refresh() }
+        embedded.onConnectionLost = { [weak self] message in self?.handleConnectionLost(message) }
+        do {
+            let version = try await embedded.start()
+            (engine as? WebAPIEngine)?.stopSync()
+            (engine as? EmbeddedEngine)?.terminateNow()
+            engine = embedded
+            detailsCache.removeAll()
+            connectedKey = "embedded"
+            connectionState = .connected(version: version)
+            connectionSettingsConnected()
+            refresh()
+            writeProbeLog("[sync] embedded connected")
+        } catch {
+            connectionState = previousVersion.map { .connected(version: $0) }
+                ?? .failed(message: error.localizedDescription)
+            writeProbeLog("[sync] embedded connect failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func connectionSettingsConnected() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+    }
+
+    private func engineModeChanged() {
+        writeProbeLog("[sync] engine mode -> \(EngineSettings.shared.mode.rawValue)")
+        Task {
+            await connectRealBackend()
+            if !isConnected, EngineSettings.shared.mode == .server {
+                showConnectionSheet = true
+            }
+        }
+    }
+
     private func handleConnectionLost(_ message: String) {
         guard !isConnected else { return }
         connectionState = .failed(message: message)
@@ -334,6 +397,7 @@ final class ListViewModel {
     /// qBittorrent may restart at any time; retry the saved endpoint until it
     /// is back (or the credentials/URL are changed).
     private func scheduleReconnect() {
+        guard EngineSettings.shared.mode == .server else { return }
         guard reconnectTask == nil else { return }
         reconnectTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -532,6 +596,11 @@ final class ListViewModel {
         if updated != torrents { torrents = updated }
         if let real = engine as? WebAPIEngine {
             PowerManagementManager.shared.noteObservation(active: real.transferActivity())
+        } else if let embedded = engine as? EmbeddedEngine {
+            PowerManagementManager.shared.noteObservation(active: embedded.transferActivity())
+            if embedded.isConnected, !connectionState.isConnected {
+                connectionState = .connected(version: "embedded")
+            }
         }
         CompletionMonitor.shared.observe(torrents: torrents)
         reloadOrganizers()
@@ -744,6 +813,7 @@ final class ListViewModel {
     }
 
     func recomputeSyncTier() {
+        guard !(engine is EmbeddedEngine) else { return }
         guard let real = engine as? WebAPIEngine else { return }
         let itemPresent = AppSettings.shared.showMenuBarItem
             && StatusItemController.shared.isItemVisible

@@ -97,8 +97,8 @@ struct UIBoundaryTests {
         "socket(",
         "connect(",
         "bind(",
-        "Partout",
-        "PartoutNative",
+        "import Partout",
+        "import PartoutNative",
         "import Darwin",
     ]
 

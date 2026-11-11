@@ -30,6 +30,15 @@ else
     echo "warning: tunnel helper missing — build the drift-tunnel-helper target first"
 fi
 
+# Embedded torque engine: libtorrent helper launched by the app.
+ENGINE="engine/build/drift-engine"
+if [[ -f "$ENGINE" ]]; then
+    cp "$ENGINE" "$APP/Contents/MacOS/drift-engine"
+    codesign --force -s - "$APP/Contents/MacOS/drift-engine"
+else
+    echo "warning: embedded engine missing — run engine/build.sh first"
+fi
+
 # PartoutNative dynamic framework: both binaries link it; embed under
 # Frameworks and point rpath there before sealing.
 FRAMEWORK=".build/out/Products/Debug/PartoutNative.framework"

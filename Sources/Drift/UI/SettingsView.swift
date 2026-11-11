@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Bindable var model: ListViewModel
     @Bindable private var app = AppSettings.shared
     @Bindable private var connection = ConnectionSettings.shared
+    @Bindable private var engineSettings = EngineSettings.shared
     @Bindable private var speed = SpeedSettings.shared
     @Bindable private var leech = LeechGuard.shared
     @Bindable private var booster = BoosterSettings.shared
@@ -46,6 +47,21 @@ struct SettingsView: View {
     var body: some View {
         Form {
             if !screenshotMode {
+            Section("Torrent Engine") {
+                Picker("Engine", selection: $engineSettings.mode) {
+                    ForEach(EngineMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(engineSettings.mode.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Embedded mode runs a bundled libtorrent engine; no Docker or separate qBittorrent install is needed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("General") {
                 HStack {
                     TextField("Default save destination", text: $app.defaultSavePath)
@@ -64,6 +80,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if engineSettings.mode == .server {
             Section("Connection") {
                 TextField("Web UI URL", text: $baseUrl)
                     .textFieldStyle(.roundedBorder)
@@ -105,8 +122,10 @@ struct SettingsView: View {
                 }
             }
             }
+            }
 
             if !screenshotMode {
+            if engineSettings.mode == .server {
             Section("Transfer Speeds (server)") {
                 speedField("Download limit (KiB/s)", value: $speed.downloadLimit)
                 speedField("Upload limit (KiB/s)", value: $speed.uploadLimit)
@@ -129,6 +148,7 @@ struct SettingsView: View {
 
             Section("Search Plugins") {
                 searchPluginsSection
+            }
             }
             }
 
