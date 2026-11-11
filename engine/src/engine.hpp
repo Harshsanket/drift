@@ -67,6 +67,8 @@ class Engine {
   struct TorrentMeta {
     std::string category;
     std::vector<std::string> tags;
+    std::string displayName;
+    bool firstLastPiecePriority = false;
   };
 
   boost::json::object add(boost::json::object const& request);
@@ -76,6 +78,29 @@ class Engine {
   boost::json::object details(std::string const& hash);
   boost::json::object limits();
   boost::json::object setLimits(boost::json::object const& request);
+  boost::json::object setFlags(boost::json::object const& request);
+  boost::json::object recheck(boost::json::object const& request);
+  boost::json::object queue(boost::json::object const& request);
+  boost::json::object rename(boost::json::object const& request);
+  boost::json::object setLocation(boost::json::object const& request);
+  boost::json::object setFilePriority(boost::json::object const& request);
+  boost::json::object categories();
+  boost::json::object createCategory(boost::json::object const& request);
+  boost::json::object removeCategories(boost::json::object const& request);
+  boost::json::object setCategory(boost::json::object const& request);
+  boost::json::object tags();
+  boost::json::object createTags(boost::json::object const& request);
+  boost::json::object deleteTags(boost::json::object const& request);
+  boost::json::object addRemoveTags(boost::json::object const& request, bool add);
+  boost::json::object addTrackers(boost::json::object const& request);
+  boost::json::object editTracker(boost::json::object const& request);
+  boost::json::object removeTrackers(boost::json::object const& request);
+  boost::json::object reannounce(boost::json::object const& request);
+  boost::json::object addWebSeeds(boost::json::object const& request);
+  boost::json::object editWebSeed(boost::json::object const& request);
+  boost::json::object removeWebSeeds(boost::json::object const& request);
+  boost::json::object banIPs(boost::json::object const& request, bool ban);
+  boost::json::object stats();
 
   boost::json::object summary(lt::torrent_handle const& handle) const;
   boost::json::object summaryForHash(std::string const& hash) const;
@@ -94,6 +119,10 @@ class Engine {
   lt::torrent_handle find(std::string const& hash) const;
   void applyAddOptions(lt::add_torrent_params& atp, AddOptions const& options) const;
   std::string effectiveSavePath(AddOptions const& options) const;
+  void applyIPFilter();
+  void applyFirstLastPiecePriority(lt::torrent_handle const& handle, bool enabled);
+  static std::vector<std::string> idsFrom(boost::json::object const& request);
+  static std::vector<std::string> stringsFrom(boost::json::object const& request, char const* key);
 
   std::string stateDir_;
   EngineConfig config_;
@@ -102,6 +131,9 @@ class Engine {
   std::unique_ptr<lt::session> session_;
   std::map<std::string, lt::torrent_handle> torrents_;
   std::map<std::string, TorrentMeta> meta_;
+  std::map<std::string, std::string> categoryPaths_;
+  std::vector<std::string> knownTags_;
+  std::vector<std::string> bannedIPs_;
   std::map<std::string, std::string> lastSummary_;
   std::map<std::string, std::int64_t> resumeRequestedAt_;
   bool configDirty_ = false;

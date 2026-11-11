@@ -153,6 +153,7 @@ bool Engine::init(std::string& error) {
   config_.savePath = expandHome(config_.savePath);
   fs::create_directories(config_.savePath, ec);
 
+  applyIPFilter();
   loadResumeFiles();
   initialized_ = true;
   saveConfig();
@@ -189,6 +190,28 @@ void Engine::loadConfig() {
   if (auto const* limit = obj.if_contains("uploadLimit"); limit && limit->is_int64()) {
     config_.uploadLimit = static_cast<int>(limit->as_int64());
   }
+  if (auto const* categories = obj.if_contains("categories"); categories && categories->is_array()) {
+    for (auto const& entry : categories->as_array()) {
+      if (!entry.is_object()) continue;
+      auto const& c = entry.as_object();
+      auto const* name = c.if_contains("name");
+      auto const* savePath = c.if_contains("savePath");
+      if (name && name->is_string()) {
+        categoryPaths_[name->as_string().c_str()] =
+            (savePath && savePath->is_string()) ? savePath->as_string().c_str() : "";
+      }
+    }
+  }
+  if (auto const* tags = obj.if_contains("tags"); tags && tags->is_array()) {
+    for (auto const& tag : tags->as_array()) {
+      if (tag.is_string()) knownTags_.push_back(tag.as_string().c_str());
+    }
+  }
+  if (auto const* bans = obj.if_contains("bannedIPs"); bans && bans->is_array()) {
+    for (auto const& ip : bans->as_array()) {
+      if (ip.is_string()) bannedIPs_.push_back(ip.as_string().c_str());
+    }
+  }
   if (auto const* torrents = obj.if_contains("torrents"); torrents && torrents->is_object()) {
     for (auto const& [hash, entry] : torrents->as_object()) {
       if (!entry.is_object()) continue;
@@ -202,6 +225,13 @@ void Engine::loadConfig() {
           if (tag.is_string()) meta.tags.push_back(tag.as_string().c_str());
         }
       }
+      if (auto const* name = m.if_contains("displayName"); name && name->is_string()) {
+        meta.displayName = name->as_string().c_str();
+      }
+      if (auto const* firstLast = m.if_contains("firstLastPiecePriority");
+          firstLast && firstLast->is_bool()) {
+        meta.firstLastPiecePriority = firstLast->as_bool();
+      }
       meta_[std::string(hash)] = std::move(meta);
     }
   }
@@ -213,10 +243,27 @@ void Engine::saveConfig() const {
   obj["listenPort"] = config_.listenPort;
   obj["downloadLimit"] = config_.downloadLimit;
   obj["uploadLimit"] = config_.uploadLimit;
+  boost::json::array categories;
+  for (auto const& [name, savePath] : categoryPaths_) {
+    boost::json::object entry;
+    entry["name"] = name;
+    entry["savePath"] = savePath;
+    categories.push_back(std::move(entry));
+  }
+  obj["categories"] = std::move(categories);
+  boost::json::array tags;
+  for (auto const& tag : knownTags_) tags.push_back(boost::json::value(tag));
+  obj["tags"] = std::move(tags);
+  boost::json::array bans;
+  for (auto const& ip : bannedIPs_) bans.push_back(boost::json::value(ip));
+  obj["bannedIPs"] = std::move(bans);
+
   boost::json::object torrents;
   for (auto const& [hash, meta] : meta_) {
     boost::json::object entry;
     if (!meta.category.empty()) entry["category"] = meta.category;
+    if (!meta.displayName.empty()) entry["displayName"] = meta.displayName;
+    if (meta.firstLastPiecePriority) entry["firstLastPiecePriority"] = true;
     boost::json::array tags;
     for (auto const& tag : meta.tags) tags.push_back(boost::json::value(tag));
     entry["tags"] = std::move(tags);
@@ -327,13 +374,19 @@ bool Engine::addMagnet(std::string const& uri, AddOptions const& options,
   }
   hash = torrentHash(handle);
   torrents_[hash] = handle;
-  if (!options.category.empty() || !options.tags.empty()) {
-    meta_[hash] = TorrentMeta{options.category, options.tags};
-    configDirty_ = true;
+  auto& meta = meta_[hash];
+  if (!options.category.empty()) meta.category = options.category;
+  for (auto const& tag : options.tags) {
+    if (std::find(meta.tags.begin(), meta.tags.end(), tag) == meta.tags.end()) {
+      meta.tags.push_back(tag);
+    }
   }
   if (options.firstLastPiecePriority) {
-    // Approximate qB's first/last piece priority: prioritize the first and
-    // last file ranges after metadata arrives (best effort, no hard failure).
+    meta.firstLastPiecePriority = true;
+    applyFirstLastPiecePriority(handle, true);
+  }
+  if (!options.category.empty() || !options.tags.empty() || options.firstLastPiecePriority) {
+    configDirty_ = true;
   }
   saveResume(handle);
   emitLog("add " + hash + " " + (options.stopped ? "paused" : "started"));
@@ -360,8 +413,18 @@ bool Engine::addTorrentFile(std::string const& bytes, AddOptions const& options,
   }
   hash = torrentHash(handle);
   torrents_[hash] = handle;
-  if (!options.category.empty() || !options.tags.empty()) {
-    meta_[hash] = TorrentMeta{options.category, options.tags};
+  auto& meta = meta_[hash];
+  if (!options.category.empty()) meta.category = options.category;
+  for (auto const& tag : options.tags) {
+    if (std::find(meta.tags.begin(), meta.tags.end(), tag) == meta.tags.end()) {
+      meta.tags.push_back(tag);
+    }
+  }
+  if (options.firstLastPiecePriority) {
+    meta.firstLastPiecePriority = true;
+    applyFirstLastPiecePriority(handle, true);
+  }
+  if (!options.category.empty() || !options.tags.empty() || options.firstLastPiecePriority) {
     configDirty_ = true;
   }
   saveResume(handle);
@@ -459,6 +522,10 @@ void Engine::popAlerts() {
     if (auto* metadata = lt::alert_cast<lt::metadata_received_alert>(alert)) {
       auto hash = torrentHash(metadata->handle);
       emitLog("metadata received " + hash);
+      auto metaIt = meta_.find(hash);
+      if (metaIt != meta_.end() && metaIt->second.firstLastPiecePriority) {
+        applyFirstLastPiecePriority(metadata->handle, true);
+      }
       saveResume(metadata->handle);
       continue;
     }
@@ -531,6 +598,7 @@ void Engine::broadcastState(bool force) {
   event["rid"] = static_cast<std::int64_t>(++rid_);
   event["torrents"] = std::move(changed);
   if (!removed.empty()) event["torrents_removed"] = std::move(removed);
+  event["stats"] = stats();
   emit_(std::move(event));
 }
 
@@ -541,7 +609,10 @@ boost::json::object Engine::summary(lt::torrent_handle const& handle) const {
   boost::json::object out;
   auto const hash = torrentHash(handle);
   out["id"] = hash;
-  out["name"] = status.name;
+  auto metaIt = meta_.find(hash);
+  out["name"] = (metaIt != meta_.end() && !metaIt->second.displayName.empty())
+                    ? metaIt->second.displayName
+                    : status.name;
   out["progress"] = static_cast<double>(status.progress);
   out["size"] = status.total;
   out["downloadSpeed"] = status.download_payload_rate;
@@ -567,7 +638,8 @@ boost::json::object Engine::summary(lt::torrent_handle const& handle) const {
   out["savePath"] = status.save_path;
   out["addedOn"] = static_cast<std::int64_t>(status.added_time);
   out["sequential"] = bool(status.flags & lt::torrent_flags::sequential_download);
-  out["firstLastPiecePriority"] = false;
+  out["firstLastPiecePriority"] =
+      metaIt != meta_.end() && metaIt->second.firstLastPiecePriority;
   out["superSeeding"] = bool(status.flags & lt::torrent_flags::super_seeding);
   out["autoManaged"] = bool(status.flags & lt::torrent_flags::auto_managed);
 
@@ -604,7 +676,6 @@ boost::json::object Engine::summary(lt::torrent_handle const& handle) const {
     }
   }
   out["status"] = state;
-  auto metaIt = meta_.find(hash);
   if (metaIt != meta_.end() && !metaIt->second.category.empty()) {
     out["category"] = metaIt->second.category;
   } else {
@@ -675,9 +746,14 @@ boost::json::object Engine::detailsFor(lt::torrent_handle const& handle) const {
         file["priority"] = apiPriority(handle.file_priority(i));
         files.push_back(std::move(file));
       }
-      for (auto const& seed : info->web_seeds()) {
+      for (auto const& url : handle.url_seeds()) {
         boost::json::object webSeed;
-        webSeed["url"] = seed.url;
+        webSeed["url"] = url;
+        webSeeds.push_back(std::move(webSeed));
+      }
+      for (auto const& url : handle.http_seeds()) {
+        boost::json::object webSeed;
+        webSeed["url"] = url;
         webSeeds.push_back(std::move(webSeed));
       }
     }
@@ -881,6 +957,11 @@ boost::json::object Engine::list() {
   out["full_update"] = true;
   out["rid"] = static_cast<std::int64_t>(++rid_);
   out["torrents"] = std::move(torrents);
+  auto categoryResponse = categories();
+  out["categories"] = categoryResponse["categories"];
+  auto tagResponse = tags();
+  out["tags"] = tagResponse["tags"];
+  out["stats"] = stats();
   return out;
 }
 
@@ -920,6 +1001,481 @@ boost::json::object Engine::setLimits(boost::json::object const& request) {
   return limits();
 }
 
+std::vector<std::string> Engine::idsFrom(boost::json::object const& request) {
+  std::vector<std::string> ids;
+  if (auto const* id = request.if_contains("id"); id && id->is_string()) {
+    ids.push_back(id->as_string().c_str());
+  }
+  if (auto const* list = request.if_contains("ids"); list && list->is_array()) {
+    for (auto const& id : list->as_array()) {
+      if (id.is_string()) ids.push_back(id.as_string().c_str());
+    }
+  }
+  return ids;
+}
+
+std::vector<std::string> Engine::stringsFrom(boost::json::object const& request,
+                                             char const* key) {
+  std::vector<std::string> values;
+  if (auto const* list = request.if_contains(key); list && list->is_array()) {
+    for (auto const& value : list->as_array()) {
+      if (value.is_string()) values.push_back(value.as_string().c_str());
+    }
+  } else if (auto const* value = request.if_contains(key); value && value->is_string()) {
+    values.push_back(value->as_string().c_str());
+  }
+  return values;
+}
+
+void Engine::applyIPFilter() {
+  lt::ip_filter filter;
+  for (auto const& text : bannedIPs_) {
+    lt::error_code ec;
+    auto address = lt::make_address(text, ec);
+    if (ec) continue;
+    filter.add_rule(address, address, lt::ip_filter::blocked);
+  }
+  session_->set_ip_filter(filter);
+}
+
+void Engine::applyFirstLastPiecePriority(lt::torrent_handle const& handle, bool enabled) {
+  auto info = handle.torrent_file();
+  if (!info) return;
+  auto const& storage = info->files();
+  auto const pieceLength = info->piece_length();
+  if (pieceLength <= 0) return;
+  for (lt::file_index_t i{0}; static_cast<int>(i) < storage.num_files(); ++i) {
+    auto const offset = storage.file_offset(i);
+    auto const size = storage.file_size(i);
+    if (size <= 0) continue;
+    auto const first = static_cast<int>(offset / pieceLength);
+    auto const last = static_cast<int>((offset + size - 1) / pieceLength);
+    if (enabled) {
+      handle.set_piece_deadline(lt::piece_index_t{first}, 0);
+      handle.set_piece_deadline(lt::piece_index_t{last}, 0);
+    } else {
+      handle.reset_piece_deadline(lt::piece_index_t{first});
+      handle.reset_piece_deadline(lt::piece_index_t{last});
+    }
+  }
+}
+
+boost::json::object Engine::stats() {
+  std::int64_t received = 0;
+  std::int64_t sent = 0;
+  std::int64_t receivedAll = 0;
+  std::int64_t sentAll = 0;
+  std::int64_t downSpeed = 0;
+  std::int64_t upSpeed = 0;
+  std::int64_t wasted = 0;
+  for (auto const& [hash, handle] : torrents_) {
+    (void)hash;
+    if (!handle.is_valid()) continue;
+    auto const status = handle.status();
+    received += status.total_download;
+    sent += status.total_upload;
+    receivedAll += status.all_time_download;
+    sentAll += status.all_time_upload;
+    downSpeed += status.download_payload_rate;
+    upSpeed += status.upload_payload_rate;
+    wasted += status.total_failed_bytes + status.total_redundant_bytes;
+  }
+  std::error_code ec;
+  auto const space = fs::space(config_.savePath, ec);
+  boost::json::object out;
+  out["received"] = received;
+  out["sent"] = sent;
+  out["wasted"] = wasted;
+  out["receivedAllTime"] = receivedAll;
+  out["sentAllTime"] = sentAll;
+  out["globalRatio"] = receivedAll > 0
+                           ? static_cast<double>(sentAll) / static_cast<double>(receivedAll)
+                           : 0.0;
+  out["freeSpaceOnDisk"] = ec ? 0 : static_cast<std::int64_t>(space.available);
+  out["downloadSpeed"] = downSpeed;
+  out["uploadSpeed"] = upSpeed;
+  return out;
+}
+
+boost::json::object Engine::setFlags(boost::json::object const& request) {
+  auto const ids = idsFrom(request);
+  auto const* sequential = request.if_contains("sequential");
+  auto const* superSeeding = request.if_contains("superSeeding");
+  auto const* autoManaged = request.if_contains("autoManaged");
+  auto const* firstLast = request.if_contains("firstLastPiecePriority");
+  for (auto const& id : ids) {
+    auto handle = find(id);
+    if (!handle.is_valid()) continue;
+    if (sequential && sequential->is_bool()) {
+      if (sequential->as_bool()) handle.set_flags(lt::torrent_flags::sequential_download);
+      else handle.unset_flags(lt::torrent_flags::sequential_download);
+    }
+    if (superSeeding && superSeeding->is_bool()) {
+      if (superSeeding->as_bool()) handle.set_flags(lt::torrent_flags::super_seeding);
+      else handle.unset_flags(lt::torrent_flags::super_seeding);
+    }
+    if (autoManaged && autoManaged->is_bool()) {
+      if (autoManaged->as_bool()) handle.set_flags(lt::torrent_flags::auto_managed);
+      else handle.unset_flags(lt::torrent_flags::auto_managed);
+    }
+    if (firstLast && firstLast->is_bool()) {
+      meta_[id].firstLastPiecePriority = firstLast->as_bool();
+      applyFirstLastPiecePriority(handle, firstLast->as_bool());
+    }
+    saveResume(handle);
+  }
+  configDirty_ = true;
+  boost::json::object out;
+  out["op"] = "set_flags";
+  out["ok"] = true;
+  out["ids"] = boost::json::array();
+  for (auto const& id : ids) out["ids"].as_array().push_back(boost::json::value(id));
+  return out;
+}
+
+boost::json::object Engine::recheck(boost::json::object const& request) {
+  for (auto const& id : idsFrom(request)) {
+    auto handle = find(id);
+    if (handle.is_valid()) handle.force_recheck();
+  }
+  boost::json::object out;
+  out["op"] = "recheck";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::queue(boost::json::object const& request) {
+  auto const* move = request.if_contains("move");
+  auto const direction = (move && move->is_string()) ? std::string(move->as_string().c_str()) : "";
+  for (auto const& id : idsFrom(request)) {
+    auto handle = find(id);
+    if (!handle.is_valid()) continue;
+    if (direction == "top") handle.queue_position_top();
+    else if (direction == "up") handle.queue_position_up();
+    else if (direction == "down") handle.queue_position_down();
+    else if (direction == "bottom") handle.queue_position_bottom();
+  }
+  boost::json::object out;
+  out["op"] = "queue";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::rename(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  auto const* name = request.if_contains("name");
+  if (!id || !id->is_string() || !name || !name->is_string()) {
+    return errorResponse("rename", "missing id or name");
+  }
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("rename", "unknown torrent");
+  auto const newName = std::string(name->as_string().c_str());
+  auto info = handle.torrent_file();
+  if (info) {
+    auto const oldName = info->name();
+    auto const& storage = info->files();
+    if (storage.num_files() == 1) {
+      handle.rename_file(lt::file_index_t{0}, newName);
+    } else {
+      for (lt::file_index_t i{0}; static_cast<int>(i) < storage.num_files(); ++i) {
+        auto path = storage.file_path(i);
+        if (path.rfind(oldName + "/", 0) == 0) {
+          path = newName + path.substr(oldName.size());
+        }
+        handle.rename_file(i, path);
+      }
+    }
+  }
+  meta_[id->as_string().c_str()].displayName = newName;
+  configDirty_ = true;
+  saveResume(handle);
+  broadcastState(false);
+  boost::json::object out;
+  out["op"] = "rename";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::setLocation(boost::json::object const& request) {
+  auto const* location = request.if_contains("location");
+  if (!location || !location->is_string()) return errorResponse("set_location", "missing location");
+  for (auto const& id : idsFrom(request)) {
+    auto handle = find(id);
+    if (handle.is_valid()) handle.move_storage(location->as_string().c_str());
+  }
+  boost::json::object out;
+  out["op"] = "set_location";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::setFilePriority(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  auto const* index = request.if_contains("fileIndex");
+  auto const* priority = request.if_contains("priority");
+  if (!id || !id->is_string() || !index || !index->is_int64() || !priority || !priority->is_int64()) {
+    return errorResponse("file_priority", "missing id/fileIndex/priority");
+  }
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("file_priority", "unknown torrent");
+  auto const value = static_cast<int>(priority->as_int64());
+  lt::download_priority_t converted = lt::default_priority;
+  if (value == 0) converted = lt::dont_download;
+  else if (value == 6) converted = lt::download_priority_t{6};
+  else if (value == 7) converted = lt::download_priority_t{7};
+  handle.file_priority(lt::file_index_t{static_cast<int>(index->as_int64())}, converted);
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "file_priority";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::categories() {
+  boost::json::array list;
+  for (auto const& [name, savePath] : categoryPaths_) {
+    boost::json::object entry;
+    entry["name"] = name;
+    entry["savePath"] = savePath;
+    list.push_back(std::move(entry));
+  }
+  boost::json::object out;
+  out["op"] = "categories";
+  out["ok"] = true;
+  out["categories"] = std::move(list);
+  return out;
+}
+
+boost::json::object Engine::createCategory(boost::json::object const& request) {
+  auto const* name = request.if_contains("name");
+  if (!name || !name->is_string()) return errorResponse("create_category", "missing name");
+  auto const* savePath = request.if_contains("savePath");
+  categoryPaths_[name->as_string().c_str()] =
+      (savePath && savePath->is_string()) ? savePath->as_string().c_str() : "";
+  configDirty_ = true;
+  return categories();
+}
+
+boost::json::object Engine::removeCategories(boost::json::object const& request) {
+  for (auto const& name : stringsFrom(request, "names")) {
+    categoryPaths_.erase(name);
+    for (auto& [hash, meta] : meta_) {
+      (void)hash;
+      if (meta.category == name) meta.category.clear();
+    }
+  }
+  configDirty_ = true;
+  return categories();
+}
+
+boost::json::object Engine::setCategory(boost::json::object const& request) {
+  auto const* category = request.if_contains("category");
+  std::string name = (category && category->is_string()) ? category->as_string().c_str() : "";
+  if (!name.empty() && categoryPaths_.find(name) == categoryPaths_.end()) {
+    categoryPaths_[name] = "";
+  }
+  for (auto const& id : idsFrom(request)) {
+    meta_[id].category = name;
+  }
+  configDirty_ = true;
+  broadcastState(false);
+  boost::json::object out;
+  out["op"] = "set_category";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::tags() {
+  boost::json::array list;
+  for (auto const& tag : knownTags_) list.push_back(boost::json::value(tag));
+  boost::json::object out;
+  out["op"] = "tags";
+  out["ok"] = true;
+  out["tags"] = std::move(list);
+  return out;
+}
+
+boost::json::object Engine::createTags(boost::json::object const& request) {
+  for (auto const& tag : stringsFrom(request, "names")) {
+    if (std::find(knownTags_.begin(), knownTags_.end(), tag) == knownTags_.end()) {
+      knownTags_.push_back(tag);
+    }
+  }
+  configDirty_ = true;
+  return tags();
+}
+
+boost::json::object Engine::deleteTags(boost::json::object const& request) {
+  for (auto const& tag : stringsFrom(request, "names")) {
+    knownTags_.erase(std::remove(knownTags_.begin(), knownTags_.end(), tag), knownTags_.end());
+    for (auto& [hash, meta] : meta_) {
+      (void)hash;
+      meta.tags.erase(std::remove(meta.tags.begin(), meta.tags.end(), tag), meta.tags.end());
+    }
+  }
+  configDirty_ = true;
+  broadcastState(false);
+  return tags();
+}
+
+boost::json::object Engine::addRemoveTags(boost::json::object const& request, bool add) {
+  auto const tags = stringsFrom(request, "tags");
+  for (auto const& id : idsFrom(request)) {
+    auto& list = meta_[id].tags;
+    for (auto const& tag : tags) {
+      if (add) {
+        if (std::find(list.begin(), list.end(), tag) == list.end()) list.push_back(tag);
+        if (std::find(knownTags_.begin(), knownTags_.end(), tag) == knownTags_.end()) {
+          knownTags_.push_back(tag);
+        }
+      } else {
+        list.erase(std::remove(list.begin(), list.end(), tag), list.end());
+      }
+    }
+  }
+  configDirty_ = true;
+  broadcastState(false);
+  boost::json::object out;
+  out["op"] = add ? "add_tags" : "remove_tags";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::addTrackers(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  if (!id || !id->is_string()) return errorResponse("add_trackers", "missing id");
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("add_trackers", "unknown torrent");
+  for (auto const& url : stringsFrom(request, "urls")) {
+    handle.add_tracker(lt::announce_entry(url));
+  }
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "add_trackers";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::editTracker(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  auto const* oldURL = request.if_contains("oldURL");
+  auto const* newURL = request.if_contains("newURL");
+  if (!id || !id->is_string() || !oldURL || !oldURL->is_string()
+      || !newURL || !newURL->is_string()) {
+    return errorResponse("edit_tracker", "missing id/oldURL/newURL");
+  }
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("edit_tracker", "unknown torrent");
+  std::vector<lt::announce_entry> trackers = handle.trackers();
+  for (auto& tracker : trackers) {
+    if (tracker.url == oldURL->as_string()) tracker.url = newURL->as_string().c_str();
+  }
+  handle.replace_trackers(trackers);
+  handle.force_reannounce();
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "edit_tracker";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::removeTrackers(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  if (!id || !id->is_string()) return errorResponse("remove_trackers", "missing id");
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("remove_trackers", "unknown torrent");
+  auto removed = stringsFrom(request, "urls");
+  std::vector<lt::announce_entry> trackers = handle.trackers();
+  trackers.erase(std::remove_if(trackers.begin(), trackers.end(), [&](auto const& tracker) {
+                   return std::find(removed.begin(), removed.end(), tracker.url) != removed.end();
+                 }),
+                 trackers.end());
+  handle.replace_trackers(trackers);
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "remove_trackers";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::reannounce(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  if (!id || !id->is_string()) return errorResponse("reannounce", "missing id");
+  auto handle = find(id->as_string().c_str());
+  if (handle.is_valid()) handle.force_reannounce();
+  boost::json::object out;
+  out["op"] = "reannounce";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::addWebSeeds(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  if (!id || !id->is_string()) return errorResponse("add_web_seeds", "missing id");
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("add_web_seeds", "unknown torrent");
+  for (auto const& url : stringsFrom(request, "urls")) handle.add_url_seed(url);
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "add_web_seeds";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::editWebSeed(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  auto const* oldURL = request.if_contains("oldURL");
+  auto const* newURL = request.if_contains("newURL");
+  if (!id || !id->is_string() || !oldURL || !oldURL->is_string()
+      || !newURL || !newURL->is_string()) {
+    return errorResponse("edit_web_seed", "missing id/oldURL/newURL");
+  }
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("edit_web_seed", "unknown torrent");
+  handle.remove_url_seed(oldURL->as_string().c_str());
+  handle.add_url_seed(newURL->as_string().c_str());
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "edit_web_seed";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::removeWebSeeds(boost::json::object const& request) {
+  auto const* id = request.if_contains("id");
+  if (!id || !id->is_string()) return errorResponse("remove_web_seeds", "missing id");
+  auto handle = find(id->as_string().c_str());
+  if (!handle.is_valid()) return errorResponse("remove_web_seeds", "unknown torrent");
+  for (auto const& url : stringsFrom(request, "urls")) handle.remove_url_seed(url);
+  saveResume(handle);
+  boost::json::object out;
+  out["op"] = "remove_web_seeds";
+  out["ok"] = true;
+  return out;
+}
+
+boost::json::object Engine::banIPs(boost::json::object const& request, bool ban) {
+  auto const ips = stringsFrom(request, "ips");
+  for (auto const& ip : ips) {
+    if (ban) {
+      if (std::find(bannedIPs_.begin(), bannedIPs_.end(), ip) == bannedIPs_.end()) {
+        bannedIPs_.push_back(ip);
+      }
+    } else {
+      bannedIPs_.erase(std::remove(bannedIPs_.begin(), bannedIPs_.end(), ip), bannedIPs_.end());
+    }
+  }
+  applyIPFilter();
+  configDirty_ = true;
+  boost::json::array list;
+  for (auto const& ip : bannedIPs_) list.push_back(boost::json::value(ip));
+  boost::json::object out;
+  out["op"] = ban ? "ban_ips" : "unban_ips";
+  out["ok"] = true;
+  out["ips"] = std::move(list);
+  return out;
+}
+
 boost::json::object Engine::handle(boost::json::object const& request) {
   auto const op = request.if_contains("op");
   if (!op || !op->is_string()) return errorResponse("", "missing op");
@@ -956,6 +1512,58 @@ boost::json::object Engine::handle(boost::json::object const& request) {
     if (name == "stop") return startStop(request, false);
     if (name == "limits") return limits();
     if (name == "set_limits") return setLimits(request);
+    if (name == "set_flags") return setFlags(request);
+    if (name == "force_start") {
+      for (auto const& id : idsFrom(request)) {
+        auto handle = find(id);
+        if (!handle.is_valid()) continue;
+        handle.unset_flags(lt::torrent_flags::auto_managed);
+        handle.resume();
+      }
+      boost::json::object out;
+      out["op"] = "force_start";
+      out["ok"] = true;
+      return out;
+    }
+    if (name == "recheck") return recheck(request);
+    if (name == "queue") return queue(request);
+    if (name == "rename") return rename(request);
+    if (name == "set_location") return setLocation(request);
+    if (name == "file_priority") return setFilePriority(request);
+    if (name == "categories") return categories();
+    if (name == "create_category") return createCategory(request);
+    if (name == "edit_category") return createCategory(request);
+    if (name == "remove_categories") return removeCategories(request);
+    if (name == "set_category") return setCategory(request);
+    if (name == "tags") return tags();
+    if (name == "create_tags") return createTags(request);
+    if (name == "delete_tags") return deleteTags(request);
+    if (name == "add_tags") return addRemoveTags(request, true);
+    if (name == "remove_tags") return addRemoveTags(request, false);
+    if (name == "add_trackers") return addTrackers(request);
+    if (name == "edit_tracker") return editTracker(request);
+    if (name == "remove_trackers") return removeTrackers(request);
+    if (name == "reannounce") return reannounce(request);
+    if (name == "add_web_seeds") return addWebSeeds(request);
+    if (name == "edit_web_seed") return editWebSeed(request);
+    if (name == "remove_web_seeds") return removeWebSeeds(request);
+    if (name == "ban_ips") return banIPs(request, true);
+    if (name == "unban_ips") return banIPs(request, false);
+    if (name == "banned_ips") {
+      boost::json::array list;
+      for (auto const& ip : bannedIPs_) list.push_back(boost::json::value(ip));
+      boost::json::object out;
+      out["op"] = "banned_ips";
+      out["ok"] = true;
+      out["ips"] = std::move(list);
+      return out;
+    }
+    if (name == "stats") {
+      auto out = stats();
+      out["op"] = "stats";
+      out["ok"] = true;
+      return out;
+    }
     return errorResponse(name, "unknown op");
   } catch (std::exception const& e) {
     return errorResponse("", e.what());

@@ -52,19 +52,38 @@ final class EmbeddedStore: @unchecked Sendable {
     private let lock = NSLock()
     private var torrentMap: [String: TorrentSummary] = [:]
     private var detailMap: [String: TorrentDetails] = [:]
+    private var categoryMap: [String: TorrentCategory] = [:]
+    private var tagList: [String] = []
+    private var statsValue: ServerStatistics?
 
-    func replaceAll(_ raw: [String: Any]) {
+    func replaceAll(
+        _ raw: [String: Any],
+        categories: [[String: Any]]? = nil,
+        tags: [String]? = nil,
+        stats: [String: Any]? = nil
+    ) {
         var next: [String: TorrentSummary] = [:]
         for (id, value) in raw {
             guard let object = value as? [String: Any] else { continue }
             next[id] = Self.summary(id: id, object)
         }
+        var nextCategories: [String: TorrentCategory] = [:]
+        for row in categories ?? [] {
+            guard let name = row["name"] as? String else { continue }
+            nextCategories[name] = TorrentCategory(
+                name: name,
+                savePath: row["savePath"] as? String ?? ""
+            )
+        }
         lock.lock()
         torrentMap = next
+        if let categories { categoryMap = nextCategories }
+        if let tags { tagList = tags }
+        if let stats { statsValue = Self.statistics(stats) }
         lock.unlock()
     }
 
-    func apply(torrents raw: [String: Any], removed: [String]) {
+    func apply(torrents raw: [String: Any], removed: [String], stats: [String: Any]? = nil) {
         lock.lock()
         for (id, value) in raw {
             guard let object = value as? [String: Any] else { continue }
@@ -74,7 +93,26 @@ final class EmbeddedStore: @unchecked Sendable {
             torrentMap.removeValue(forKey: id)
             detailMap.removeValue(forKey: id)
         }
+        if let stats { statsValue = Self.statistics(stats) }
         lock.unlock()
+    }
+
+    func categories() -> [TorrentCategory] {
+        lock.lock()
+        defer { lock.unlock() }
+        return categoryMap.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func tags() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return tagList.sorted()
+    }
+
+    func statistics() -> ServerStatistics? {
+        lock.lock()
+        defer { lock.unlock() }
+        return statsValue
     }
 
     func summaries() -> [TorrentSummary] {
@@ -138,6 +176,20 @@ final class EmbeddedStore: @unchecked Sendable {
     private static func bool(_ value: Any?) -> Bool {
         if let number = value as? NSNumber { return number.boolValue }
         return (value as? Bool) ?? false
+    }
+
+    static func statistics(_ json: [String: Any]) -> ServerStatistics {
+        ServerStatistics(
+            received: int(json["received"]),
+            sent: int(json["sent"]),
+            wasted: int(json["wasted"]),
+            receivedAllTime: int(json["receivedAllTime"]),
+            sentAllTime: int(json["sentAllTime"]),
+            globalRatio: double(json["globalRatio"]),
+            freeSpaceOnDisk: int(json["freeSpaceOnDisk"]),
+            downloadSpeed: int(json["downloadSpeed"]),
+            uploadSpeed: int(json["uploadSpeed"])
+        )
     }
 
     static func summary(id: String, _ json: [String: Any]) -> TorrentSummary {
@@ -684,7 +736,11 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         case "state":
             let torrents = event["torrents"] as? [String: Any] ?? [:]
             let removed = event["torrents_removed"] as? [String] ?? []
-            store.apply(torrents: torrents, removed: removed)
+            store.apply(
+                torrents: torrents,
+                removed: removed,
+                stats: event["stats"] as? [String: Any]
+            )
             notifyUpdate()
         case "alert":
             if (event["level"] as? String) == "error", let message = event["message"] as? String {
@@ -702,15 +758,33 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private func refresh(using connection: EmbeddedConnection) async throws {
         let response = try await connection.request(EngineMessage(raw: ["op": "list"]))
         guard let torrents = response.raw["torrents"] as? [String: Any] else { return }
-        store.replaceAll(torrents)
+        store.replaceAll(
+            torrents,
+            categories: response.raw["categories"] as? [[String: Any]],
+            tags: response.raw["tags"] as? [String],
+            stats: response.raw["stats"] as? [String: Any]
+        )
         notifyUpdate()
     }
 
-    private func request(_ object: [String: Any]) async throws -> [String: Any] {
+    /// Fire-and-forget list refresh after a mutation whose visible result is
+    /// engine-owned (categories, tags, names, locations).
+    private func refreshSoon() {
+        Task { [weak self] in
+            guard let self, let connection = self.currentConnection() else { return }
+            try? await self.refresh(using: connection)
+        }
+    }
+
+    private func request(_ message: EngineMessage) async throws -> [String: Any] {
         guard let connection = currentConnection() else {
             throw EmbeddedEngineError.notRunning
         }
-        return try await connection.request(EngineMessage(raw: object)).raw
+        return try await connection.request(message).raw
+    }
+
+    private func request(_ object: [String: Any]) async throws -> [String: Any] {
+        try await request(EngineMessage(raw: object))
     }
 
     // MARK: Process + socket
@@ -822,23 +896,15 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     }
 
     func serverStatistics() -> ServerStatistics? {
-        let torrents = store.summaries()
-        guard !torrents.isEmpty else { return nil }
-        let downloaded = torrents.reduce(Int64(0)) { $0 + $1.downloaded }
-        let uploaded = torrents.reduce(Int64(0)) { $0 + $1.uploaded }
-        let downloadSpeed = torrents.reduce(Int64(0)) { $0 + $1.downloadSpeed }
-        let uploadSpeed = torrents.reduce(Int64(0)) { $0 + $1.uploadSpeed }
-        return ServerStatistics(
-            received: downloaded,
-            sent: uploaded,
-            wasted: 0,
-            receivedAllTime: downloaded,
-            sentAllTime: uploaded,
-            globalRatio: downloaded > 0 ? Double(uploaded) / Double(downloaded) : 0,
-            freeSpaceOnDisk: 0,
-            downloadSpeed: downloadSpeed,
-            uploadSpeed: uploadSpeed
-        )
+        store.statistics()
+    }
+
+    func categories() -> [TorrentCategory] {
+        store.categories()
+    }
+
+    func tags() -> [String] {
+        store.tags()
     }
 
     private func placeholderDetails(for id: String) -> TorrentDetails {
@@ -938,9 +1004,169 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         }
     }
 
+    private func mutate(_ request: [String: Any], refresh: Bool = false) {
+        let message = EngineMessage(raw: request)
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.request(message)
+            if refresh { self.refreshSoon() }
+        }
+    }
+
+    // MARK: E3 parity wave
+
+    func forceStart(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "force_start", "ids": ids])
+    }
+
+    func recheck(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "recheck", "ids": ids])
+    }
+
+    func queue(ids: [String], move: QueueMove) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "queue", "ids": ids, "move": move.rawValue])
+    }
+
+    func setLocation(ids: [String], location: String) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "set_location", "ids": ids, "location": location])
+    }
+
+    func rename(id: String, name: String) {
+        mutate(["op": "rename", "id": id, "name": name], refresh: true)
+    }
+
+    func toggleSequentialDownload(ids: [String]) {
+        guard let first = ids.first, let summary = store.summary(first) else { return }
+        mutate(["op": "set_flags", "ids": ids, "sequential": !summary.sequential])
+    }
+
+    func toggleFirstLastPiecePriority(ids: [String]) {
+        guard let first = ids.first, let summary = store.summary(first) else { return }
+        mutate([
+            "op": "set_flags",
+            "ids": ids,
+            "firstLastPiecePriority": !summary.firstLastPiecePriority,
+        ])
+    }
+
+    func setSuperSeeding(ids: [String], enabled: Bool) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "set_flags", "ids": ids, "superSeeding": enabled])
+    }
+
+    func setAutoManagement(ids: [String], enabled: Bool) {
+        guard !ids.isEmpty else { return }
+        mutate(["op": "set_flags", "ids": ids, "autoManaged": enabled])
+    }
+
     func setFilePriority(id: String, fileIndex: Int, priority: FilePriority) {
-        // E3 owns file priorities on the embedded wire protocol.
-        writeProbeLog("[embedded] file priority ignored id=\(id) file=\(fileIndex) -> \(priority.rawValue)")
+        mutate([
+            "op": "file_priority",
+            "id": id,
+            "fileIndex": fileIndex,
+            "priority": priority.apiValue,
+        ])
+    }
+
+    func createCategory(name: String, savePath: String?) {
+        mutate([
+            "op": "create_category",
+            "name": name,
+            "savePath": savePath ?? "",
+        ], refresh: true)
+    }
+
+    func editCategory(name: String, savePath: String?) {
+        mutate([
+            "op": "edit_category",
+            "name": name,
+            "savePath": savePath ?? "",
+        ], refresh: true)
+    }
+
+    func removeCategories(names: [String]) {
+        guard !names.isEmpty else { return }
+        mutate(["op": "remove_categories", "names": names], refresh: true)
+    }
+
+    func setCategory(ids: [String], category: String?) {
+        guard !ids.isEmpty else { return }
+        mutate([
+            "op": "set_category",
+            "ids": ids,
+            "category": category ?? "",
+        ])
+    }
+
+    func createTags(_ names: [String]) {
+        guard !names.isEmpty else { return }
+        mutate(["op": "create_tags", "names": names], refresh: true)
+    }
+
+    func deleteTags(_ names: [String]) {
+        guard !names.isEmpty else { return }
+        mutate(["op": "delete_tags", "names": names], refresh: true)
+    }
+
+    func addTags(ids: [String], tags: [String]) {
+        guard !ids.isEmpty, !tags.isEmpty else { return }
+        mutate(["op": "add_tags", "ids": ids, "tags": tags])
+    }
+
+    func removeTags(ids: [String], tags: [String]) {
+        guard !ids.isEmpty, !tags.isEmpty else { return }
+        mutate(["op": "remove_tags", "ids": ids, "tags": tags])
+    }
+
+    func addTrackers(id: String, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        mutate(["op": "add_trackers", "id": id, "urls": urls])
+    }
+
+    func editTracker(id: String, oldURL: String, newURL: String) {
+        mutate(["op": "edit_tracker", "id": id, "oldURL": oldURL, "newURL": newURL])
+    }
+
+    func removeTrackers(id: String, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        mutate(["op": "remove_trackers", "id": id, "urls": urls])
+    }
+
+    func reannounceTrackers(id: String) {
+        mutate(["op": "reannounce", "id": id])
+    }
+
+    func addWebSeeds(id: String, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        mutate(["op": "add_web_seeds", "id": id, "urls": urls])
+    }
+
+    func editWebSeed(id: String, oldURL: String, newURL: String) {
+        mutate(["op": "edit_web_seed", "id": id, "oldURL": oldURL, "newURL": newURL])
+    }
+
+    func removeWebSeeds(id: String, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        mutate(["op": "remove_web_seeds", "id": id, "urls": urls])
+    }
+
+    func bannedIPs() async -> [String] {
+        guard let response = try? await request(["op": "banned_ips"]) else { return [] }
+        return (response["ips"] as? [String]) ?? []
+    }
+
+    func banIPs(_ ips: [String]) async {
+        guard !ips.isEmpty else { return }
+        _ = try? await request(["op": "ban_ips", "ips": ips])
+    }
+
+    func unbanIPs(_ ips: [String]) async {
+        guard !ips.isEmpty else { return }
+        _ = try? await request(["op": "unban_ips", "ips": ips])
     }
 
     func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {
@@ -972,7 +1198,14 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     }
 
     func applyPreferences(_ values: [String: Any]) {
-        // E3 owns the embedded preference surface; keep the call harmless.
+        // Only the global speed limits map onto the embedded session in E3;
+        // alternative limits are a qBittorrent scheduling feature.
+        if let download = values["dl_limit"] as? Int {
+            setGlobalDownloadLimit(Int64(download) * 1024)
+        }
+        if let upload = values["up_limit"] as? Int {
+            setGlobalUploadLimit(Int64(upload) * 1024)
+        }
     }
 
     // MARK: Placeholders
