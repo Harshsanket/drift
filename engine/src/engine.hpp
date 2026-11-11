@@ -100,6 +100,7 @@ class Engine {
   boost::json::object editWebSeed(boost::json::object const& request);
   boost::json::object removeWebSeeds(boost::json::object const& request);
   boost::json::object banIPs(boost::json::object const& request, bool ban);
+  boost::json::object importQbittorrent(boost::json::object const& request);
   boost::json::object stats();
 
   boost::json::object summary(lt::torrent_handle const& handle) const;

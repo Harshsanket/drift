@@ -28,6 +28,12 @@ struct SettingsView: View {
     @State private var externalSearchURL = ""
     @State private var externalSearchKey = ""
     @State private var externalSearchStatus: String?
+    @State private var qbBackupPath = ""
+    @State private var qbImportSavePath = ""
+    @State private var qbImportStart = true
+    @State private var qbImporting = false
+    @State private var qbImportStatus: String?
+    @State private var embeddedRestarting = false
 
     @State private var tunnelProfileText = ""
     @State private var startingTunnel = false
@@ -155,6 +161,36 @@ struct SettingsView: View {
             }
             }
             if engineSettings.mode == .embedded {
+            Section("Import from qBittorrent") {
+                HStack {
+                    TextField("BT_backup folder", text: $qbBackupPath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseQBFolder() }
+                }
+                HStack {
+                    TextField("Download folder", text: $qbImportSavePath)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Choose…") { chooseImportFolder() }
+                }
+                Toggle("Start imported torrents", isOn: $qbImportStart)
+                if let status = qbImportStatus {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Reads qBittorrent’s BT_backup folder: .torrent metadata plus fastresume progress, file priorities, category, tags and trackers. The download folder replaces the server’s save path.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(qbImporting ? "Importing…" : "Import") {
+                        Task { await importQbittorrentBackup() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(qbImporting || qbBackupPath.isEmpty || !model.isConnected)
+                }
+            }
+
             Section("External Search") {
                 TextField("Jackett / Prowlarr URL", text: $externalSearchURL)
                     .textFieldStyle(.roundedBorder)
@@ -182,6 +218,27 @@ struct SettingsView: View {
                         writeProbeLog("[settings] external search saved configured=\(externalSearch.isConfigured)")
                     }
                     .buttonStyle(.borderedProminent)
+                }
+            }
+            }
+            if engineSettings.mode == .embedded {
+            Section("Embedded Engine") {
+                HStack {
+                    Text("Restart the engine if status looks stale. Torrent state is saved to disk first.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(embeddedRestarting ? "Restarting…" : "Restart engine") {
+                        Task {
+                            embeddedRestarting = true
+                            let ok = await EmbeddedEngine.shared.restart()
+                            embeddedRestarting = false
+                            qbImportStatus = ok
+                                ? "Engine restarted."
+                                : "Engine restart failed; check the status bar."
+                        }
+                    }
+                    .disabled(embeddedRestarting)
                 }
             }
             }
@@ -288,6 +345,7 @@ struct SettingsView: View {
             whitelistClientText = leech.config.whitelistClients.joined(separator: "\n")
             whitelistIPText = leech.config.whitelistIPs.joined(separator: "\n")
             tunnelProfileText = Keychain.password(account: "tunnel.wireguard") ?? ""
+            if qbImportSavePath.isEmpty { qbImportSavePath = app.defaultSavePath }
             externalSearchURL = externalSearch.baseURL
             externalSearchKey = externalSearch.apiKey
             externalSearchStatus = externalSearch.isConfigured
@@ -850,6 +908,49 @@ struct SettingsView: View {
     private func speedField(_ label: String, value: Binding<Int64>) -> some View {
         TextField(label, value: value, format: .number.grouping(.never))
             .textFieldStyle(.roundedBorder)
+    }
+
+    private func chooseQBFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose BT_backup"
+        if panel.runModal() == .OK, let url = panel.url {
+            qbBackupPath = url.path
+        }
+    }
+
+    private func chooseImportFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose download folder"
+        panel.directoryURL = URL(
+            fileURLWithPath: NSString(string: qbImportSavePath).expandingTildeInPath
+        )
+        if panel.runModal() == .OK, let url = panel.url {
+            qbImportSavePath = url.path
+        }
+    }
+
+    private func importQbittorrentBackup() async {
+        qbImporting = true
+        defer { qbImporting = false }
+        let result = await EmbeddedEngine.shared.importQbittorrent(
+            backupPath: qbBackupPath,
+            savePath: qbImportSavePath.isEmpty ? nil : qbImportSavePath,
+            start: qbImportStart
+        )
+        if result.errors.isEmpty {
+            qbImportStatus = "Imported \(result.imported), skipped \(result.skipped)."
+        } else {
+            qbImportStatus = "Imported \(result.imported), skipped \(result.skipped). "
+                + (result.errors.first ?? "")
+        }
+        model.refresh()
+        writeProbeLog("[settings] qB import imported=\(result.imported) skipped=\(result.skipped)")
     }
 
     private func chooseFolder() {

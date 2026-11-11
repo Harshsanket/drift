@@ -14,6 +14,7 @@ enum EmbeddedEngineError: LocalizedError {
     case notRunning
     case timeout
     case protocolError(String)
+    case protocolVersion(Int)
     case shortRead
     case connectionClosed
 
@@ -29,6 +30,8 @@ enum EmbeddedEngineError: LocalizedError {
             "Timed out connecting to the embedded engine."
         case .protocolError(let message):
             "Embedded engine protocol error: \(message)"
+        case .protocolVersion(let version):
+            "Drift and drift-engine versions do not match (engine protocol \(version)). Update the app."
         case .shortRead:
             "The embedded engine sent a truncated response."
         case .connectionClosed:
@@ -331,11 +334,13 @@ private final class ReadyGate: @unchecked Sendable {
 actor EmbeddedConnection {
     private let connection: NWConnection
     private var pending: CheckedContinuation<EngineMessage, Error>?
+    private var requestTimeout: Task<Void, Never>?
     private var busy = false
     private var closed = false
     private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var eventHandler: (@Sendable (EngineMessage) -> Void)?
     private var receiveTask: Task<Void, Never>?
+    private var lastInbound = Date()
 
     init(connection: NWConnection) {
         self.connection = connection
@@ -386,6 +391,10 @@ actor EmbeddedConnection {
         let frame = try Self.makeFrame(object.raw)
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<EngineMessage, Error>) in
             pending = continuation
+            requestTimeout = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                await self?.failPending(EmbeddedEngineError.timeout)
+            }
             Task { [weak self] in
                 do {
                     try await self?.sendFrame(frame)
@@ -417,9 +426,19 @@ actor EmbeddedConnection {
         close(error: nil)
     }
 
+    func closeWithError(_ error: Error) {
+        close(error: error)
+    }
+
+    func secondsSinceInbound() -> TimeInterval {
+        Date().timeIntervalSince(lastInbound)
+    }
+
     private func close(error: Error?) {
         guard !closed else { return }
         closed = true
+        requestTimeout?.cancel()
+        requestTimeout = nil
         connection.cancel()
         if let pending {
             self.pending = nil
@@ -431,6 +450,8 @@ actor EmbeddedConnection {
     }
 
     private func failPending(_ error: Error) {
+        requestTimeout?.cancel()
+        requestTimeout = nil
         pending?.resume(throwing: error)
         pending = nil
     }
@@ -448,6 +469,7 @@ actor EmbeddedConnection {
                     throw EmbeddedEngineError.protocolError("invalid frame length \(length)")
                 }
                 let payload = try await receiveExactly(length)
+                lastInbound = Date()
                 guard let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
                     throw EmbeddedEngineError.protocolError("frame is not a JSON object")
                 }
@@ -465,6 +487,8 @@ actor EmbeddedConnection {
             return
         }
         guard let pending else { return }
+        requestTimeout?.cancel()
+        requestTimeout = nil
         self.pending = nil
         pending.resume(returning: message)
     }
@@ -669,8 +693,9 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
                     self?.handle(event)
                 }
                 let hello = try await connection.request(EngineMessage(raw: ["op": "hello", "v": 1]))
-                guard (hello.raw["v"] as? Int) == 1 else {
-                    throw EmbeddedEngineError.protocolError("unsupported protocol version")
+                let protocolVersion = hello.raw["v"] as? Int ?? 0
+                guard protocolVersion == 1 else {
+                    throw EmbeddedEngineError.protocolVersion(protocolVersion)
                 }
                 let libtorrent = hello.raw["libtorrent"] as? String ?? "unknown"
                 backoff = 1
@@ -682,6 +707,10 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
                         try? await Task.sleep(nanoseconds: 5_000_000_000)
                         guard let self, let connection = self.currentConnection() else { return }
                         await connection.heartbeat()
+                        if await connection.secondsSinceInbound() > 20 {
+                            await connection.closeWithError(EmbeddedEngineError.timeout)
+                            return
+                        }
                     }
                 }
                 await connection.waitForClose()
@@ -1265,6 +1294,48 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     func globalUploadLimit() async -> Int64? {
         guard let response = try? await request(["op": "limits"]) else { return nil }
         return (response["upload"] as? NSNumber)?.int64Value
+    }
+
+    /// Manual recovery surface for Settings; the supervisor also restarts on
+    /// crash/hang automatically.
+    func restart() async -> Bool {
+        await stop()
+        do {
+            _ = try await start()
+            return true
+        } catch {
+            writeProbeLog("[embedded] restart failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    struct ImportResult: Sendable {
+        var imported: Int
+        var skipped: Int
+        var errors: [String]
+    }
+
+    func importQbittorrent(
+        backupPath: String,
+        savePath: String?,
+        start: Bool = true
+    ) async -> ImportResult {
+        do {
+            let response = try await request([
+                "op": "import_qb",
+                "path": backupPath,
+                "savePath": savePath ?? "",
+                "start": start,
+            ])
+            refreshSoon()
+            return ImportResult(
+                imported: (response["imported"] as? NSNumber)?.intValue ?? 0,
+                skipped: (response["skipped"] as? NSNumber)?.intValue ?? 0,
+                errors: (response["errors"] as? [String]) ?? []
+            )
+        } catch {
+            return ImportResult(imported: 0, skipped: 0, errors: [error.localizedDescription])
+        }
     }
 
     // MARK: External search (E4)

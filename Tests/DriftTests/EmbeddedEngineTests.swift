@@ -103,8 +103,11 @@ final class EmbeddedEngineTests: XCTestCase {
             return summary.category == "DriftParity" && summary.tags.contains("alpha")
         }
         XCTAssertTrue(organized, "category/tags did not reach the summary")
-        XCTAssertTrue(embedded.categories().contains { $0.name == "DriftParity" })
-        XCTAssertTrue(embedded.tags().contains("alpha"))
+        let organizersLoaded = try await waitUntil(timeout: 5) {
+            embedded.categories().contains { $0.name == "DriftParity" }
+                && embedded.tags().contains("alpha")
+        }
+        XCTAssertTrue(organizersLoaded)
 
         embedded.toggleSequentialDownload(ids: [hash])
         embedded.setSuperSeeding(ids: [hash], enabled: true)
@@ -120,11 +123,15 @@ final class EmbeddedEngineTests: XCTestCase {
         XCTAssertTrue(flags, "engine flags did not round-trip")
 
         await embedded.banIPs(["203.0.113.9"])
-        let banned = await embedded.bannedIPs()
-        XCTAssertTrue(banned.contains("203.0.113.9"))
+        let banApplied = try await waitUntil(timeout: 5) {
+            await embedded.bannedIPs().contains("203.0.113.9")
+        }
+        XCTAssertTrue(banApplied)
         await embedded.unbanIPs(["203.0.113.9"])
-        let unbanned = await embedded.bannedIPs()
-        XCTAssertFalse(unbanned.contains("203.0.113.9"))
+        let banCleared = try await waitUntil(timeout: 5) {
+            await !embedded.bannedIPs().contains("203.0.113.9")
+        }
+        XCTAssertTrue(banCleared)
 
         embedded.removeCategories(names: ["DriftParity"])
         embedded.deleteTags(["alpha", "beta"])
@@ -394,6 +401,43 @@ final class EmbeddedEngineTests: XCTestCase {
         XCTAssertEqual(embedded.loadTorrents().first { $0.id == hash }?.name, "test.bin")
         embedded.remove(ids: [hash], deleteFiles: false)
         _ = try await waitUntil(timeout: 10) { embedded.loadTorrents().isEmpty }
+    }
+
+
+    func testImportsQBittorrentBackup() async throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let binary = root.appendingPathComponent("engine/build/drift-engine")
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else {
+            throw XCTSkip("engine/build/drift-engine missing — run engine/build.sh first")
+        }
+        let backup = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Drift/qbittorrent-test/qBittorrent/BT_backup")
+        let files = (try? FileManager.default.contentsOfDirectory(at: backup, includingPropertiesForKeys: nil)) ?? []
+        guard files.contains(where: { $0.pathExtension == "fastresume" }) else {
+            throw XCTSkip("no qBittorrent BT_backup fastresume fixture available")
+        }
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drift-embedded-import-\(UUID().uuidString)", isDirectory: true)
+        let downloadDir = dir.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadDir, withIntermediateDirectories: true)
+        stateDir = dir
+        let socket = "/tmp/drift-embedded-\(UUID().uuidString.prefix(8)).sock"
+        let embedded = EmbeddedEngine(stateDir: dir, socketPath: socket, binaryURL: binary)
+        engine = embedded
+        _ = try await embedded.start()
+
+        let result = await embedded.importQbittorrent(
+            backupPath: backup.path,
+            savePath: downloadDir.path,
+            start: false
+        )
+        XCTAssertGreaterThan(result.imported, 0)
+        let imported = try await waitUntil(timeout: 10) { !embedded.loadTorrents().isEmpty }
+        XCTAssertTrue(imported)
+        for torrent in embedded.loadTorrents() {
+            XCTAssertEqual(torrent.savePath, downloadDir.path)
+        }
     }
 
     private func waitUntil(

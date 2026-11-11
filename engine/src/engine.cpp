@@ -6,6 +6,7 @@
 
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/announce_entry.hpp>
+#include <libtorrent/bdecode.hpp>
 #include <libtorrent/magnet_uri.hpp>
 #include <libtorrent/peer_info.hpp>
 #include <libtorrent/read_resume_data.hpp>
@@ -21,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -1060,6 +1062,167 @@ void Engine::applyFirstLastPiecePriority(lt::torrent_handle const& handle, bool 
   }
 }
 
+boost::json::object Engine::importQbittorrent(boost::json::object const& request) {
+  auto const* pathValue = request.if_contains("path");
+  if (!pathValue || !pathValue->is_string()) {
+    return errorResponse("import_qb", "missing BT_backup path");
+  }
+  auto const* saveValue = request.if_contains("savePath");
+  std::string target = (saveValue && saveValue->is_string())
+                           ? saveValue->as_string().c_str()
+                           : "";
+  bool startImported = true;
+  if (auto const* start = request.if_contains("start"); start && start->is_bool()) {
+    startImported = start->as_bool();
+  }
+
+  std::error_code ec;
+  fs::path directory(pathValue->as_string().c_str());
+  if (!fs::is_directory(directory, ec)) {
+    return errorResponse("import_qb", "BT_backup directory not found");
+  }
+
+  int imported = 0;
+  int skipped = 0;
+  boost::json::array errors;
+  std::set<std::string> withResume;
+
+  auto importOne = [&](fs::path const& torrentPath, fs::path const* resumePath) {
+    std::ifstream torrentIn(torrentPath, std::ios::binary);
+    if (!torrentIn) {
+      ++skipped;
+      if (errors.size() < 12) errors.push_back(boost::json::value("unreadable " + torrentPath.filename().string()));
+      return;
+    }
+    std::string torrentBytes((std::istreambuf_iterator<char>(torrentIn)),
+                             std::istreambuf_iterator<char>());
+    lt::error_code torrentError;
+    lt::torrent_info info(lt::span<char const>(
+                              torrentBytes.data(),
+                              static_cast<std::ptrdiff_t>(torrentBytes.size())),
+                          torrentError, lt::from_span);
+    if (torrentError) {
+      ++skipped;
+      if (errors.size() < 12) {
+        errors.push_back(boost::json::value(torrentPath.filename().string() + ": " + torrentError.message()));
+      }
+      return;
+    }
+
+    lt::add_torrent_params atp;
+    lt::bdecode_node resumeNode;
+    std::string resumeBytes;
+    if (resumePath != nullptr) {
+      std::ifstream resumeIn(*resumePath, std::ios::binary);
+      resumeBytes.assign((std::istreambuf_iterator<char>(resumeIn)),
+                         std::istreambuf_iterator<char>());
+    }
+    if (!resumeBytes.empty()) {
+      lt::error_code resumeError;
+      auto parsed = lt::read_resume_data(
+          lt::span<char const>(resumeBytes.data(),
+                               static_cast<std::ptrdiff_t>(resumeBytes.size())),
+          resumeError);
+      if (!resumeError) atp = std::move(parsed);
+      else if (errors.size() < 12) {
+        errors.push_back(boost::json::value(torrentPath.stem().string()
+                                            + " resume: " + resumeError.message()));
+      }
+      lt::error_code bdecodeError;
+      resumeNode = lt::bdecode(
+          lt::span<char const>(resumeBytes.data(),
+                               static_cast<std::ptrdiff_t>(resumeBytes.size())),
+          bdecodeError);
+    }
+
+    atp.ti = std::make_shared<lt::torrent_info>(info);
+    if (!target.empty()) atp.save_path = target;
+    else if (atp.save_path.empty()) atp.save_path = config_.savePath;
+    if (startImported) atp.flags &= ~lt::torrent_flags::paused;
+
+    auto const hash = hashHex(atp.info_hashes.get_best());
+    if (torrents_.find(hash) != torrents_.end()) {
+      ++skipped;
+      return;
+    }
+    lt::error_code addError;
+    auto handle = session_->add_torrent(std::move(atp), addError);
+    if (addError) {
+      ++skipped;
+      if (errors.size() < 12) {
+        errors.push_back(boost::json::value(torrentPath.stem().string()
+                                            + ": " + addError.message()));
+      }
+      return;
+    }
+
+    auto& meta = meta_[hash];
+    if (resumeNode.type() == lt::bdecode_node::dict_t) {
+      auto const name = resumeNode.dict_find_string_value("qBt-name");
+      if (!name.empty()) meta.displayName = std::string(name);
+      auto const category = resumeNode.dict_find_string_value("qBt-category");
+      if (!category.empty()) meta.category = std::string(category);
+      auto const tags = resumeNode.dict_find_list("qBt-tags");
+      if (tags.type() == lt::bdecode_node::list_t) {
+        for (int i = 0; i < tags.list_size(); ++i) {
+          auto const tag = tags.list_string_value_at(i);
+          if (!tag.empty()) meta.tags.push_back(std::string(tag));
+        }
+      }
+      if (resumeNode.dict_find_int_value("qBt-firstLastPiecePriority", 0) != 0) {
+        meta.firstLastPiecePriority = true;
+        applyFirstLastPiecePriority(handle, true);
+      }
+    }
+    if (!meta.category.empty() && categoryPaths_.find(meta.category) == categoryPaths_.end()) {
+      categoryPaths_[meta.category] = "";
+    }
+    for (auto const& tag : meta.tags) {
+      if (std::find(knownTags_.begin(), knownTags_.end(), tag) == knownTags_.end()) {
+        knownTags_.push_back(tag);
+      }
+    }
+    torrents_[hash] = handle;
+    ++imported;
+    saveResume(handle);
+    emitLog("imported " + hash + " from qBittorrent");
+  };
+
+  for (auto const& entry : fs::directory_iterator(directory, ec)) {
+    if (!entry.is_regular_file()) continue;
+    if (entry.path().extension() != ".fastresume") continue;
+    auto stem = entry.path().stem().string();
+    withResume.insert(stem);
+    auto torrentPath = directory / (stem + ".torrent");
+    if (!fs::is_regular_file(torrentPath, ec)) {
+      ++skipped;
+      if (errors.size() < 12) errors.push_back(boost::json::value(stem + ": missing .torrent"));
+      continue;
+    }
+    importOne(torrentPath, &entry.path());
+  }
+
+  // qBittorrent can have torrents that never wrote fastresume data yet.
+  for (auto const& entry : fs::directory_iterator(directory, ec)) {
+    if (!entry.is_regular_file()) continue;
+    if (entry.path().extension() != ".torrent") continue;
+    auto stem = entry.path().stem().string();
+    if (withResume.find(stem) != withResume.end()) continue;
+    importOne(entry.path(), nullptr);
+  }
+
+  configDirty_ = true;
+  saveConfig();
+  broadcastState(true);
+  boost::json::object out;
+  out["op"] = "import_qb";
+  out["ok"] = true;
+  out["imported"] = imported;
+  out["skipped"] = skipped;
+  out["errors"] = std::move(errors);
+  return out;
+}
+
 boost::json::object Engine::stats() {
   std::int64_t received = 0;
   std::int64_t sent = 0;
@@ -1558,6 +1721,7 @@ boost::json::object Engine::handle(boost::json::object const& request) {
       out["ips"] = std::move(list);
       return out;
     }
+    if (name == "import_qb") return importQbittorrent(request);
     if (name == "stats") {
       auto out = stats();
       out["op"] = "stats";

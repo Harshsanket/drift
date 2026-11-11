@@ -47,6 +47,9 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 - Add via **magnet link, URL or .torrent file** (drag & drop; large file
   guard), with a configurable default save destination.
 - **Categories and tags** to keep a large library tidy.
+- **Import from qBittorrent** — point Drift at a `BT_backup` folder to bring
+  torrents, progress, file priorities, category, tags and trackers into the
+  embedded engine.
 - **Speed control** — set global and alternative speed limits straight on
   the server from Settings.
 - **WireGuard tunnel** — optional per-app tunnel powered by Partout through
