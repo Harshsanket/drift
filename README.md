@@ -6,7 +6,7 @@
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue)
+![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-blue)
 
 ## Screenshots
 
@@ -25,7 +25,7 @@ setup — no Docker, no separate qBittorrent install. The original
 [qBittorrent](https://www.qbittorrent.org) Web API mode is retained as an
 opt-in for remote servers and seedboxes.
 
-**Status: beta (v1.2.0).** It is in active development; expect rough edges
+**Status: beta (v2.0.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
@@ -82,7 +82,8 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
   ~0 % CPU when the window is hidden, and an optional "prevent idle sleep
   while transfers are active" toggle.
 - **Appearances** — System, Light and Dark themes.
-- **Automatic update check** (GitHub releases) on launch plus a manual
+- **Automatic update check** on launch: GitHub release metadata plus a
+  Sparkle EdDSA appcast published as a release asset, with a manual
   "Check for Updates" button.
 
 ## How it works
@@ -145,9 +146,9 @@ Foundation, SwiftUI, AppKit, URLSession and the two packages above.
 
 ### 1. Grab a release build (embedded mode)
 
-`Drift-1.2.0-arm64.dmg` from the
-[Releases](https://github.com/Harshsanket/drift/releases) page. Drag Drift
-to Applications and launch.
+`Drift-2.0.0-arm64.dmg` — or the matching `Drift-2.0.0-arm64.zip` — from
+the [Releases](https://github.com/Harshsanket/drift/releases) page. Open
+the DMG and drag Drift to Applications (or unzip and move `Drift.app`).
 
 This build is ad-hoc signed and not notarized. On first launch macOS may
 block it: open **System Settings → Privacy & Security → Open Anyway**, or
@@ -175,10 +176,13 @@ swift build --arch arm64
 open .build/Drift.app
 ```
 
-Release DMG (ad-hoc, EULA/background, Sparkle appcast):
+Release DMG + ZIP (ad-hoc, EULA/background, Sparkle appcast):
 
 ```sh
-./Scripts/package-dmg.sh            # → dist/Drift-1.2.0-arm64.dmg
+./Scripts/package-dmg.sh
+# → dist/Drift-2.0.0-arm64.dmg
+# → dist/Drift-2.0.0-arm64.zip
+# → dist/appcast.xml + release notes + SHA-256 files
 ```
 
 Run the unit suite with `swift test --arch arm64`.

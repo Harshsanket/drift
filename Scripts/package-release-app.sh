@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION=1.2.0
+VERSION=2.0.0
 BIN=".build/out/Products/Release/Drift"
 APP="dist/Drift.app"
 DMG="dist/Drift-$VERSION-arm64.dmg"
@@ -65,7 +65,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>120</string>
+    <string>200</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
     <key>LSMinimumSystemVersion</key>

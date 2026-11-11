@@ -109,7 +109,9 @@ int main(int argc, char** argv) {
       std::cerr << "SELFTEST EXCEPTION: " << e.what() << std::endl;
       return 1;
     }
-    return 0;
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(0);
   }
 
   std::signal(SIGPIPE, SIG_IGN);
@@ -163,6 +165,7 @@ int main(int argc, char** argv) {
 
   bool hadClient = false;
   std::int64_t lastClientSeen = unixNow();
+  auto const startedAt = unixNow();
   while (!g_stop) {
     server.poll(50);
     engine.tick();
@@ -170,8 +173,12 @@ int main(int argc, char** argv) {
     if (server.hasClient()) {
       hadClient = true;
       lastClientSeen = g_lastTick;
-    } else if (hadClient && g_lastTick - lastClientSeen > idleExitSeconds) {
+    } else if (g_lastTick - lastClientSeen > idleExitSeconds) {
       std::cerr << "drift-engine: no client for " << idleExitSeconds
+                << "s, shutting down" << std::endl;
+      g_stop = true;
+    } else if (!hadClient && g_lastTick - startedAt > idleExitSeconds) {
+      std::cerr << "drift-engine: no client connected within " << idleExitSeconds
                 << "s, shutting down" << std::endl;
       g_stop = true;
     }
@@ -182,5 +189,10 @@ int main(int argc, char** argv) {
   server.stop();
   engine.shutdown();
   std::cout << "drift-engine stopped" << std::endl;
-  return 0;
+  std::cout.flush();
+  std::cerr.flush();
+  // libtorrent's session destructor can block on shutdown of its network
+  // threads; the state is already saved, so exit deterministically instead
+  // of leaving an orphan engine behind.
+  std::_Exit(0);
 }

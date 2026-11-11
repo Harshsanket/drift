@@ -14,14 +14,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-1.2.0}"
-BUILD="${BUILD:-120}"
+VERSION="${VERSION:-2.0.0}"
+BUILD="${BUILD:-200}"
 TAG="${TAG:-v$VERSION}"
 SKIP_BUILD=0
 [[ "${1:-}" == "--skip-build" ]] && SKIP_BUILD=1
 
 APP="dist/Drift.app"
 DMG="dist/Drift-$VERSION-arm64.dmg"
+ZIP="dist/Drift-$VERSION-arm64.zip"
 STAGE=""
 MNT=""
 TMP_KEY=""
@@ -66,7 +67,7 @@ for required in "$BIN" "$HELPER" "$ENGINE"; do
 done
 
 echo "== assembling $APP =="
-rm -rf "$APP" "$DMG"
+rm -rf "$APP" "$DMG" "$ZIP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/Drift"
 cp "$HELPER" "$APP/Contents/MacOS/drift-tunnel-helper"
@@ -191,6 +192,13 @@ if [[ $CREATE_STATUS -ne 0 || ! -f "$DMG" ]]; then
     hdiutil create -volname "Drift $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 fi
 
+echo "== creating ZIP =="
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+ZIP_LIST="$(mktemp)"
+unzip -l "$ZIP" > "$ZIP_LIST"
+grep -q "Drift.app/Contents/MacOS/drift-engine" "$ZIP_LIST"
+rm -f "$ZIP_LIST"
+
 echo "== appcast + signature =="
 SIZE="$(stat -f%z "$DMG")"
 SIGN_TOOL=".build/artifacts/sparkle/Sparkle/bin/sign_update"
@@ -216,11 +224,12 @@ Stage B embedded engine release.
   persistent peer bans.
 - **Native search** — Jackett/Prowlarr support in embedded mode; server-mode
   plugin search is unchanged.
-- **Packaging** — arm64-only, ad-hoc signed DMG. No notarization.
+- **Packaging** — arm64-only, ad-hoc signed DMG and ZIP. No notarization.
 
 ## Install
 
-1. Open \`Drift-$VERSION-arm64.dmg\` and drag Drift to Applications.
+1. Open \`Drift-$VERSION-arm64.dmg\` and drag Drift to Applications, or
+   unzip \`Drift-$VERSION-arm64.zip\` and move Drift.app to Applications.
 2. First launch: macOS Gatekeeper may block the ad-hoc build. Open
    **System Settings → Privacy & Security → Open Anyway**, or run
    \`xattr -dr com.apple.quarantine /Applications/Drift.app\`.
@@ -269,13 +278,17 @@ hdiutil detach "$MNT" -quiet
 MNT=""
 
 shasum -a 256 "$DMG" | tee "dist/Drift-$VERSION-arm64.dmg.sha256"
+shasum -a 256 "$ZIP" | tee "dist/Drift-$VERSION-arm64.zip.sha256"
 echo
 echo "artifact:  $DMG"
+echo "zip:       $ZIP"
 echo "appcast:   dist/appcast.xml"
 echo "notes:     dist/release-notes-$VERSION.md"
 echo "signing:   ad-hoc (no Developer ID, no notarization — D20)"
 echo "gatekeeper: users must use System Settings → Privacy & Security → Open Anyway"
 echo
 echo "publish (requires explicit user confirmation — D16):"
-echo "  gh release create $TAG \"$DMG\" dist/appcast.xml dist/release-notes-$VERSION.md \\"
+echo "  gh release create $TAG \"$DMG\" \"$ZIP\" dist/appcast.xml \\"
+echo "    dist/release-notes-$VERSION.md dist/Drift-$VERSION-arm64.dmg.sha256 \\"
+echo "    dist/Drift-$VERSION-arm64.zip.sha256 \\"
 echo "    --title \"Drift $VERSION\" --notes-file dist/release-notes-$VERSION.md"

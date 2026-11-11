@@ -107,7 +107,10 @@ final class EmbeddedEngineTests: XCTestCase {
             embedded.categories().contains { $0.name == "DriftParity" }
                 && embedded.tags().contains("alpha")
         }
-        XCTAssertTrue(organizersLoaded)
+        XCTAssertTrue(
+            organizersLoaded,
+            "categories=\(embedded.categories().map(\.name)) tags=\(embedded.tags())"
+        )
 
         embedded.toggleSequentialDownload(ids: [hash])
         embedded.setSuperSeeding(ids: [hash], enabled: true)

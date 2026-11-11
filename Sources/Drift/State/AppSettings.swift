@@ -98,10 +98,13 @@ final class AppSettings {
         }
     }
 
-    /// Update feed (appcast.xml root URL). Empty = updates disabled: Sparkle
-    /// is never pointed anywhere until a signed feed exists.
+    /// Update feed (appcast.xml root URL). Release builds publish the appcast
+    /// as a GitHub Release asset; clearing the field disables Sparkle checks.
+    static let defaultUpdateFeedURL =
+        "https://github.com/Harshsanket/drift/releases/latest/download/appcast.xml"
+
     var updateFeedURL: String =
-        UserDefaults.standard.string(forKey: "update.feedURL") ?? "" {
+        UserDefaults.standard.string(forKey: "update.feedURL") ?? AppSettings.defaultUpdateFeedURL {
         didSet {
             UserDefaults.standard.set(updateFeedURL, forKey: "update.feedURL")
             writeProbeLog("[settings] updateFeedURL set=\(!updateFeedURL.isEmpty)")

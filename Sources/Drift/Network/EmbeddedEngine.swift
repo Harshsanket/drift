@@ -392,7 +392,11 @@ actor EmbeddedConnection {
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<EngineMessage, Error>) in
             pending = continuation
             requestTimeout = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                do {
+                    try await Task.sleep(nanoseconds: 20_000_000_000)
+                } catch {
+                    return // response arrived; do not fail the next request
+                }
                 await self?.failPending(EmbeddedEngineError.timeout)
             }
             Task { [weak self] in
@@ -554,6 +558,9 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private var searchStates: [Int64: (status: String, results: [SearchResult])] = [:]
     private var searchTasks: [Int64: Task<Void, Never>] = [:]
     private var nextSearchID: Int64 = 1
+    private let refreshLock = NSLock()
+    private var refreshRunning = false
+    private var refreshPending = false
     private var supervisorTask: Task<Void, Never>?
     private var connection: EmbeddedConnection?
     private var process: Process?
@@ -811,11 +818,34 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     }
 
     /// Fire-and-forget list refresh after a mutation whose visible result is
-    /// engine-owned (categories, tags, names, locations).
+    /// engine-owned (categories, tags, names, locations). Refreshes are
+    /// serialized and coalesced so an older list response can never overwrite
+    /// a newer organizer snapshot.
     private func refreshSoon() {
+        refreshLock.lock()
+        if refreshRunning {
+            refreshPending = true
+            refreshLock.unlock()
+            return
+        }
+        refreshRunning = true
+        refreshLock.unlock()
         Task { [weak self] in
-            guard let self, let connection = self.currentConnection() else { return }
-            try? await self.refresh(using: connection)
+            guard let self else { return }
+            while true {
+                self.refreshLock.withLock {
+                    self.refreshPending = false
+                }
+                if let connection = self.currentConnection() {
+                    try? await self.refresh(using: connection)
+                }
+                let again: Bool = self.refreshLock.withLock {
+                    let pending = self.refreshPending
+                    if !pending { self.refreshRunning = false }
+                    return pending
+                }
+                if !again { break }
+            }
         }
     }
 
@@ -1198,7 +1228,7 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
             "op": "set_category",
             "ids": ids,
             "category": category ?? "",
-        ])
+        ], refresh: true)
     }
 
     func createTags(_ names: [String]) {
@@ -1213,12 +1243,12 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
 
     func addTags(ids: [String], tags: [String]) {
         guard !ids.isEmpty, !tags.isEmpty else { return }
-        mutate(["op": "add_tags", "ids": ids, "tags": tags])
+        mutate(["op": "add_tags", "ids": ids, "tags": tags], refresh: true)
     }
 
     func removeTags(ids: [String], tags: [String]) {
         guard !ids.isEmpty, !tags.isEmpty else { return }
-        mutate(["op": "remove_tags", "ids": ids, "tags": tags])
+        mutate(["op": "remove_tags", "ids": ids, "tags": tags], refresh: true)
     }
 
     func addTrackers(id: String, urls: [String]) {

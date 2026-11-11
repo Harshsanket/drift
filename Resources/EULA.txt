@@ -1,5 +1,5 @@
 Drift — End User License Agreement
-Version 1.2.0
+Version 2.0.0
 
 Copyright © 2026 Harsh Sanket. All rights reserved.
 
