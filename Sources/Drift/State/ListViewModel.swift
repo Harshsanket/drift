@@ -124,6 +124,9 @@ final class ListViewModel {
     var showCategories = false
     var showTags = false
     var showAddSheet = false
+    var showBoostSheet = false
+    var boostTarget: TorrentSummary?
+    var boostMirrorText = ""
     /// Sources handed over from the OS (magnet URLs, dropped .torrent files)
     /// that the add sheet should present pre-filled.
     var pendingAddHandoff: AddSource?
@@ -440,6 +443,60 @@ final class ListViewModel {
             (hash: torrent.id, name: torrent.name, savePath: torrent.savePath)
         }
         Task { await DownloadCenter.shared.noteDownloadingTorrents(items) }
+    }
+
+    /// Booster entry point for every incomplete torrent. Web seeds are used
+    /// automatically; without one, the UI asks for a direct HTTP mirror.
+    func requestBoost(for torrent: TorrentSummary) {
+        guard BoosterSettings.shared.enabled, isConnected else {
+            writeProbeLog("[booster] boost ignored: disabled or not connected")
+            return
+        }
+        guard torrent.progress < 1 else {
+            writeProbeLog("[booster] boost ignored: torrent already complete")
+            return
+        }
+        if let info = DownloadCenter.shared.eligibility(for: torrent.id), info.boostable {
+            launchBoost(torrent, mirror: nil)
+        } else {
+            boostTarget = torrent
+            boostMirrorText = ""
+            showBoostSheet = true
+            writeProbeLog("[booster] mirror requested id=\(torrent.id.prefix(12))")
+        }
+    }
+
+    func confirmBoostMirror() {
+        guard let torrent = boostTarget else { return }
+        let mirror = boostMirrorText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: mirror),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil
+        else {
+            writeProbeLog("[booster] mirror rejected: invalid URL")
+            return
+        }
+        showBoostSheet = false
+        launchBoost(torrent, mirror: mirror)
+        boostTarget = nil
+        boostMirrorText = ""
+    }
+
+    func cancelBoostMirror() {
+        showBoostSheet = false
+        boostTarget = nil
+        boostMirrorText = ""
+    }
+
+    private func launchBoost(_ torrent: TorrentSummary, mirror: String?) {
+        _ = DownloadCenter.shared.startBoost(
+            id: torrent.id,
+            name: torrent.name,
+            savePath: NSString(string: torrent.savePath).expandingTildeInPath,
+            extraMirror: mirror
+        )
+        WindowOpener.openDownloads?()
     }
 
     /// Credits Booster direct downloads into the app-wide stats store on

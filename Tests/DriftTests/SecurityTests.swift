@@ -483,7 +483,8 @@ struct EmbeddedOnlyBoundaryTests {
         )
         let forbidden = [
             "WebAPIEngine", "ConnectionSettings", "EngineMode",
-            "SearchPlugin", "RSSFeed", "RSSArticle"
+            "SearchPlugin", "RSSFeed", "RSSArticle",
+            "auth/login", "sync/maindata", "localhost:8080", "X-Api-Key"
         ]
         var violations: [String] = []
         for case let url as URL in enumerator where url.pathExtension == "swift" {

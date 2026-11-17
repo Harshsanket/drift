@@ -517,26 +517,20 @@ private struct TorrentBoostMenu: View {
         case .some(let info) where info.boostable:
             return "Boost with Connection Booster (\(info.webSeedCount) web seeds)"
         default:
-            return "Boost with Connection Booster (not boostable)"
+            return "Boost with Connection Booster (choose a mirror URL…)"
         }
     }
 
     var body: some View {
         Button {
-            let task = DownloadCenter.shared.startBoost(
-                id: torrent.id,
-                name: torrent.name,
-                savePath: NSString(string: torrent.savePath).expandingTildeInPath
-            )
-            WindowOpener.openDownloads?()
-            _ = task
+            model.requestBoost(for: torrent)
         } label: {
             Label(menuLabel, systemImage: "bolt.horizontal")
         }
         .disabled(
             !model.isConnected
                 || !BoosterSettings.shared.enabled
-                || !(eligibility?.boostable ?? false)
+                || torrent.progress >= 1
         )
         if let info = eligibility, info.boostable {
             Text(info.seeds.prefix(2).joined(separator: "\n"))

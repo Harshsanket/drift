@@ -191,7 +191,7 @@ struct SettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Use cellular-dependent interfaces", isOn: $booster.allowCellular)
-                Text("Torrent mode: boosts torrents you are downloading by fetching still-missing pieces in parallel from HTTP web seeds (and an optional mirror URL), verifying each piece against the .torrent hashes before writing, then rechecking. Only torrents that report HTTP web seeds can be boosted — the torrent row menu shows which. Legacy direct-URL fetches are no longer offered; older rows stay visible in the Downloads window.")
+                Text("Torrent mode: boosts any incomplete torrent by fetching missing pieces in parallel over HTTP. A torrent's web seeds are used automatically; if it has none, Drift asks for a direct HTTP(S) mirror URL. Every piece is verified against the .torrent SHA-1 before writing, then the torrent is rechecked. A torrent with neither a web seed nor a mirror has no HTTP source to boost — libtorrent's peer engine remains the only download path.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 .onChange(of: booster.mode) { persistBooster() }

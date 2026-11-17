@@ -122,7 +122,7 @@ struct DetailsPanelView: View {
               model.isConnected,
               boostTask == nil
         else { return false }
-        return downloads.eligibility(for: torrent.id)?.boostable ?? false
+        return torrent.progress < 1
     }
 
     private var boostHelp: String {
@@ -135,7 +135,7 @@ struct DetailsPanelView: View {
         if !model.isConnected { return "Not connected" }
         if boostTask != nil { return "Boosting…" }
         guard let info = downloads.eligibility(for: torrent.id), info.boostable else {
-            return "Boost with Connection Booster (needs HTTP web seeds)"
+            return "Boost with Connection Booster (choose a mirror URL)"
         }
         return "Boost with Connection Booster (\(info.webSeedCount) web seeds)"
     }
@@ -160,12 +160,7 @@ struct DetailsPanelView: View {
 
     private func boost() {
         guard let torrent = model.selectedTorrent else { return }
-        _ = downloads.startBoost(
-            id: torrent.id,
-            name: torrent.name,
-            savePath: NSString(string: torrent.savePath).expandingTildeInPath
-        )
-        WindowOpener.openDownloads?()
+        model.requestBoost(for: torrent)
     }
 
     private func requestRemoval(deleteFiles: Bool) {

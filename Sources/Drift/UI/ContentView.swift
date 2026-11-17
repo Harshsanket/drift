@@ -104,6 +104,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.showAddSheet) {
             AddTorrentSheet(model: model)
         }
+        .sheet(isPresented: $model.showBoostSheet) {
+            BoostSourceSheet(model: model)
+        }
         .sheet(isPresented: $model.showUpdateSheet) {
             UpdatePromptSheet()
         }

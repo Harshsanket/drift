@@ -216,4 +216,21 @@ struct ListViewModelTests {
         model.toggleTagFilter("cloud")
         #expect(model.activeTags == ["iso", "cloud"])
     }
+    @Test func boostWithoutWebSeedsAsksForMirror() {
+        let settings = BoosterSettings.shared
+        let previous = settings.enabled
+        settings.enabled = true
+        defer { settings.enabled = previous }
+        let model = connectedModel()
+        let torrent = model.torrents[0]
+        model.requestBoost(for: torrent)
+        #expect(model.showBoostSheet)
+        #expect(model.boostTarget?.id == torrent.id)
+        model.boostMirrorText = "not a url"
+        model.confirmBoostMirror()
+        #expect(model.showBoostSheet, "invalid mirror must not start a boost")
+        model.cancelBoostMirror()
+        #expect(!model.showBoostSheet)
+    }
+
 }
