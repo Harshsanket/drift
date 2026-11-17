@@ -66,7 +66,6 @@ final class AppSettings {
             UserDefaults.standard.set(showMenuBarItem, forKey: "menuBar.enabled")
             writeProbeLog("[settings] menuBar=\(showMenuBarItem ? "on" : "off")")
             NotificationCenter.default.post(name: .driftMenuBarSettingChanged, object: nil)
-            onMenuBarItemChanged?()
         }
     }
 
@@ -75,16 +74,6 @@ final class AppSettings {
         didSet {
             UserDefaults.standard.set(completionNotifications, forKey: "notifications.completion")
             writeProbeLog("[settings] completionNotifications=\(completionNotifications ? "on" : "off")")
-        }
-    }
-
-    /// Sidebar RSS Feeds page on/off (Settings → General). Disabling also
-    /// closes the pane if it happens to be open.
-    var rssEnabled: Bool =
-        UserDefaults.standard.object(forKey: "rss.sidebarEnabled") as? Bool ?? true {
-        didSet {
-            guard oldValue != rssEnabled else { return }
-            UserDefaults.standard.set(rssEnabled, forKey: "rss.sidebarEnabled")
         }
     }
 
@@ -120,6 +109,4 @@ final class AppSettings {
             writeProbeLog("[settings] updateAuto=\(updateAuto ? "on" : "off")")
         }
     }
-
-    var onMenuBarItemChanged: (@MainActor () -> Void)?
 }

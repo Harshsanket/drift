@@ -1,8 +1,8 @@
 # Drift
 
 <p align="center">
-  <b>Drift</b> — a native macOS client for the qBittorrent Web API.<br>
-  Your server keeps doing the work; Drift makes it feel like a Mac app.
+  <b>Drift</b> — a native macOS BitTorrent client with a built-in engine.<br>
+  No server, no Docker, no separate qBittorrent install.
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
@@ -21,19 +21,17 @@
 Drift is a lightweight, native macOS BitTorrent client built with Swift 6,
 SwiftUI and Apple's native frameworks. It ships its own out-of-process
 **embedded libtorrent engine** (`drift-engine`) so the DMG works with zero
-setup — no Docker, no separate qBittorrent install. The original
-[qBittorrent](https://www.qbittorrent.org) Web API mode is retained as an
-opt-in for remote servers and seedboxes.
+setup — no Docker and no separate qBittorrent install. The bundled engine is
+the only backend; there is no server connection to configure.
 
 **Status: beta (v2.1.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
 
-- **Embedded engine (default)** — a bundled arm64 `drift-engine` built on
-  libtorrent 2.1.2, supervised as a child process over a private Unix
-  socket. Fresh installs need no server; the qBittorrent Web API mode stays
-  available in **Settings → Torrent Engine**.
+- **Embedded engine** — a bundled arm64 `drift-engine` built on libtorrent
+  2.1.2, supervised as a child process over a private Unix socket. No Docker,
+  server, or separate install.
 - **Torrent list** — live status sidebar (All, Downloading, Seeding,
   Completed, Stopped, Queued, Stalled, Error) with counts, plus name,
   status, progress, size and per-torrent speeds; text filter box.
@@ -50,37 +48,31 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 - **Import from qBittorrent** — point Drift at a `BT_backup` folder to bring
   torrents, progress, file priorities, category, tags and trackers into the
   embedded engine.
-- **Speed control** — set global and alternative speed limits straight on
-  the server from Settings.
-- **WireGuard tunnel** — optional per-app tunnel powered by Partout through
-  a privileged helper: only Drift's own URL sessions use it, the host
-  keeps its normal routes and DNS, and a kill switch blocks egress while
-  the tunnel is down. Paste a WireGuard `.conf` in Settings.
+- **Speed control** — set global download/upload limits on the embedded
+  engine from Settings.
+- **WireGuard tunnel** — optional per-app HTTP tunnel powered by Partout
+  through a privileged helper. It currently covers external search, booster
+  downloads and update checks, not torrent peer traffic. The host keeps its
+  normal routes and DNS. Paste a WireGuard `.conf` in Settings.
 - **Peer Protection** — qBEE-style anti-leech: flags known leecher
   clients (Xunlei, Thunder, QQ, Baidu, Xfplay, DLBT, offline downloaders…),
   media players parked in the swarm, peers that connect but never move
   data (configurable timeout), and unknown clients from flagged regions.
   Runs in three modes — Off, Shadow (log only) and Auto-ban — with a
-  client/IP whitelist and a log of recent decisions; bans go straight to
-  the server's `banned_IPs` list.
+  client/IP whitelist and a log of recent decisions; bans are persisted by
+  the embedded engine.
 - **Connection Booster** — accelerates downloading torrents that expose
   HTTP web seeds: Drift pauses the torrent, fetches missing pieces over
   parallel ranged HTTP, verifies each piece against the torrent's SHA-1,
-  writes the files and resumes qBittorrent. Boost tasks and legacy direct
-  downloads live in the Downloads window.
-- **Search** — server mode uses qBittorrent's plugin search (install,
-  enable/disable, update or remove). Embedded mode queries **Jackett or
-  Prowlarr** natively (base URL + Keychain API key) and feeds the result
-  straight into the built-in engine.
-- **RSS** — subscribe to RSS feeds from qBittorrent, read article lists,
-  refresh, mark read, and grab items as downloads.
+  writes the files and resumes the torrent. Boost tasks and direct downloads
+  live in the Downloads window.
+- **Search** — queries **Jackett or Prowlarr** natively (base URL +
+  Keychain API key) and feeds results straight into the built-in engine.
 - **Statistics pane**, **dock badge** for active downloads, and
   **notifications when a download completes**.
 - **Menu bar status item** with quick peek and controls, optional.
-- **Power conscious** — adaptive tiered sync (0.35–1.2 s) that speeds up
-  while transfers are active and slows down when idle, keeps the app at
-  ~0 % CPU when the window is hidden, and an optional "prevent idle sleep
-  while transfers are active" toggle.
+- **Power conscious** — optional "prevent idle sleep while transfers are
+  active" toggle; the app is designed to stay out of the way when hidden.
 - **Appearances** — System, Light and Dark themes.
 - **Automatic update check** on launch: GitHub release metadata plus a
   Sparkle EdDSA appcast published as a release asset, with a manual
@@ -90,25 +82,19 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
 
 - **DriftApp** sets up the scenes (main window, Settings window, Downloads
   window, menu bar item) and keeps one shared model.
-- **ListViewModel** (`@MainActor`, observable) orchestrates everything:
-  connection lifecycle, sync tiers, sidebar statistics, details caches,
-  search and RSS state.
+- **ListViewModel** (`@MainActor`, observable) orchestrates the engine
+  lifecycle, sidebar statistics, details caches and search state.
 - **EmbeddedEngine** supervises `drift-engine` (C++17 + libtorrent 2.1.2)
   over a length-prefixed JSON protocol on a Unix socket, with resume
-  persistence, heartbeats, crash restart and the same `TorrentEngine`
-  surface as server mode. The engine is arm64-only and statically linked.
-- **WebAPIEngine** is a dependency-free `URLSession` client for the
-  qBittorrent Web API (API 2.x): session-cookie login, form-encoded
-  actions, and a delta-based sync loop (`sync/maindata` + per-section
-  sync) that adapts its polling interval to activity.
-- **LeechGuard** runs peer reviews against every detail refresh and
-  routes ban decisions to the server; **Booster** (`DownloadCenter`) plans
+  persistence, heartbeats, crash restart and the `TorrentEngine` surface.
+  The engine is arm64-only and statically linked.
+- **LeechGuard** runs peer reviews against every detail refresh and applies
+  ban decisions to the embedded engine; **Booster** (`DownloadCenter`) plans
   and races parallel ranged piece fetches for torrents with HTTP web
   seeds, with persisted progress for direct downloads.
 - **TunnelService** drives `drift-tunnel-helper`, a root daemon that owns
-  the utun and exposes a loopback-only relay; Partout handles WireGuard,
-  and only Drift's URLs are proxied.
-- The password and WireGuard profile are stored securely in the **macOS
+  the utun and exposes a loopback-only HTTP relay; Partout handles WireGuard.
+- The WireGuard profile and search API key are stored in the **macOS
   keychain**.
 - `UpdateChecker` polls the repository's GitHub releases; Sparkle-backed
   `UpdateService` verifies EdDSA signatures when an appcast feed is
@@ -134,11 +120,7 @@ Foundation, SwiftUI, AppKit, URLSession and the two packages above.
 ## Requirements
 
 - macOS 26 (Tahoe) or later, Apple Silicon (ARM64)
-- **Embedded mode (default):** nothing else — the engine is in the app.
-- **Server mode (optional):** a qBittorrent instance with its **Web UI
-  enabled**; search plugins are needed only for server-mode search
-  (tested against qBittorrent 5.2.4; Web API v2.15.1 reported by the
-  server — Drift also tolerates older/newer API leanings)
+- Nothing else — the engine is in the app.
 - For the optional tunnel: a WireGuard profile and admin approval to start
   the privileged helper
 
@@ -158,14 +140,7 @@ for a DMG from Drift's official Releases page.
 That is the whole setup for embedded mode. Downloads live in
 `~/Downloads` or the destination you pick in the Add sheet.
 
-### 2. Optional: use a qBittorrent server
-
-Open **Settings → Torrent Engine → qBittorrent server**, then enter the
-Web UI URL (`http://<host>:<port>`), username and password → **Test
-Connection** → **Save**. The password is kept in your keychain. In
-qBittorrent enable **Tools → Options → Web UI**.
-
-### 3. Build from source
+### 2. Build from source
 
 ```sh
 git clone https://github.com/Harshsanket/drift
@@ -199,8 +174,8 @@ Run the unit suite with `swift test --arch arm64`.
 
 ## Thanks
 
-- **Thank you to the qBittorrent engine and its contributors** — Drift is
-  the native face of their excellent work over the Web API.
+- **Thank you to libtorrent and qBittorrent's contributors** — Drift builds
+  on libtorrent and borrows qBittorrent's user-facing conventions.
 - Development was **helped along by GLM 5.3**.
 - Proudly **made in Mumbai by Harsh Sanket**.
 

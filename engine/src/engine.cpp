@@ -977,6 +977,40 @@ boost::json::object Engine::details(std::string const& hash) {
   return out;
 }
 
+boost::json::object Engine::exportTorrent(std::string const& hash) {
+  auto handle = find(hash);
+  if (!handle.is_valid()) return errorResponse("export_torrent", "unknown torrent");
+  auto const info = handle.torrent_file();
+  if (!info) return errorResponse("export_torrent", "metadata not available");
+  auto const metadata = info->metadata();
+  auto const size = info->metadata_size();
+  if (!metadata || size <= 0) return errorResponse("export_torrent", "metadata not available");
+  std::string torrent = "d4:info";
+  torrent.append(metadata.get(), static_cast<std::size_t>(size));
+  torrent.push_back('e');
+  boost::json::object out;
+  out["op"] = "export_torrent";
+  out["ok"] = true;
+  out["data"] = hexEncode(torrent.data(), torrent.size());
+  return out;
+}
+
+boost::json::object Engine::pieceStates(std::string const& hash) {
+  auto handle = find(hash);
+  if (!handle.is_valid()) return errorResponse("piece_states", "unknown torrent");
+  auto const status = handle.status();
+  boost::json::array states;
+  states.reserve(status.pieces.size());
+  for (int i = 0; i < status.pieces.size(); ++i) {
+    states.push_back(boost::json::value(status.pieces.get_bit(lt::piece_index_t{i}) ? 1 : 0));
+  }
+  boost::json::object out;
+  out["op"] = "piece_states";
+  out["ok"] = true;
+  out["states"] = std::move(states);
+  return out;
+}
+
 boost::json::object Engine::limits() {
   boost::json::object out;
   out["op"] = "limits";
@@ -1668,6 +1702,16 @@ boost::json::object Engine::handle(boost::json::object const& request) {
       auto const* id = request.if_contains("id");
       if (!id || !id->is_string()) return errorResponse("details", "missing id");
       return details(id->as_string().c_str());
+    }
+    if (name == "export_torrent") {
+      auto const* id = request.if_contains("id");
+      if (!id || !id->is_string()) return errorResponse("export_torrent", "missing id");
+      return exportTorrent(id->as_string().c_str());
+    }
+    if (name == "piece_states") {
+      auto const* id = request.if_contains("id");
+      if (!id || !id->is_string()) return errorResponse("piece_states", "missing id");
+      return pieceStates(id->as_string().c_str());
     }
     if (name == "add") return add(request);
     if (name == "remove") return remove(request);

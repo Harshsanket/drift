@@ -20,9 +20,8 @@ struct TorrentCategory: Identifiable, Equatable {
     var id: String { name }
 }
 
-/// Snapshot of the server's transfer statistics, mirrored from
-/// `sync/maindata` server_state fields.
-struct ServerStatistics: Equatable {
+/// Snapshot of the embedded engine's session and all-time transfer stats.
+struct EngineStatistics: Equatable {
     var received: Int64
     var sent: Int64
     var wasted: Int64
@@ -48,28 +47,7 @@ struct AddOptions: Equatable {
     var autoManaged = true
 }
 
-/// One article of an RSS feed, from `rss/items` (withData=true).
-struct RSSArticle: Identifiable, Equatable, Hashable {
-    var id: Int
-    var title: String
-    var torrentURL: String
-    var date: String
-    var isRead: Bool
-    var torrentHash: String?
-}
-
-/// A flat RSS feed. The server organizes feeds in nested folders; Drift
-/// presents the flat list of leaf feeds only (folders are ignored).
-struct RSSFeed: Identifiable, Equatable, Hashable {
-    var name: String
-    var url: String
-    var articles: [RSSArticle]
-    var isLoading = false
-    var hasError = false
-    var id: String { name }
-}
-
-/// One row of a server-side search (`search/results`).
+/// One row of an embedded Jackett/Prowlarr search.
 struct SearchResult: Identifiable, Equatable, Hashable {
     var fileName: String
     var fileURL: String
@@ -79,18 +57,4 @@ struct SearchResult: Identifiable, Equatable, Hashable {
     var siteURL: String
     var engineName: String
     var id: String { fileURL + siteURL }
-}
-
-/// One installed search plugin. A plugin is a Python script that queries a
-/// single torrent indexer; qBittorrent runs it server-side and only enabled
-/// plugins are used when a search starts. `categories` are the search
-/// categories the plugin supports (the synthetic "all" entry is dropped).
-struct SearchPlugin: Identifiable, Equatable, Hashable {
-    var name: String
-    var fullName: String
-    var version: String
-    var siteURL: String
-    var enabled: Bool
-    var categories: [String]
-    var id: String { name }
 }

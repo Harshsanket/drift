@@ -6,8 +6,8 @@ extension Notification.Name {
     static let driftSpeedSettingsRequested = Notification.Name("drift.speedSettingsRequested")
 }
 
-/// The qBittorrent transfer-speed limits the Settings window edits.
-/// Units mirror the server surface: KiB/s, 0 = unlimited.
+/// The embedded engine's global transfer-speed limits, edited in Settings.
+/// Units are KiB/s; 0 = unlimited.
 @MainActor
 @Observable
 final class SpeedSettings {
@@ -15,7 +15,5 @@ final class SpeedSettings {
 
     var downloadLimit: Int64 = 0
     var uploadLimit: Int64 = 0
-    var altDownloadLimit: Int64 = 0
-    var altUploadLimit: Int64 = 0
     var loaded = false
 }

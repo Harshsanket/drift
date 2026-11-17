@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// One point of the live speed graph: one per server refresh tick.
+/// One point of the live speed graph: one per engine refresh tick.
 struct SpeedSample: Identifiable, Sendable {
     let id = UUID()
     let at: Date
@@ -10,8 +10,8 @@ struct SpeedSample: Identifiable, Sendable {
 }
 
 /// App-wide lifetime transfer statistics, recorded client-side (independent
-/// of the qBittorrent server) and persisted across launches. Sources:
-/// qBittorrent session counters (deltas per refresh tick) plus Booster
+/// of the embedded engine) and persisted across launches. Sources:
+/// engine session counters (deltas per refresh tick) plus Booster
 /// direct-download bytes.
 @MainActor
 @Observable
@@ -65,10 +65,10 @@ final class AppStats {
         firstConnectedAt = defaults.object(forKey: Keys.firstConnected) as? Date
     }
 
-    /// Called roughly every refresh tick while a server is connected.
+    /// Called roughly every refresh tick while the engine is connected.
     /// `receivedSession`/`sentSession` are session counters that reset when
-    /// the server restarts; deltas regress safely back to zero then.
-    func recordServerTick(receivedSession: Int64, sentSession: Int64, downloadSpeed: Int64, uploadSpeed: Int64) {
+    /// the engine restarts; deltas regress safely back to zero then.
+    func recordEngineTick(receivedSession: Int64, sentSession: Int64, downloadSpeed: Int64, uploadSpeed: Int64) {
         let now = Date()
         if firstConnectedAt == nil {
             firstConnectedAt = now

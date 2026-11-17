@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// Full-pane server search. Unlike the old sheet, it lives in the detail
-/// column so results, the query bar, and the footer never overlap and the
-/// sidebar stays interactive while a search runs.
+/// Full-pane embedded indexer search (Jackett/Prowlarr).
 struct SearchPaneView: View {
     @Bindable var model: ListViewModel
     @Environment(\.openWindow) private var openWindow
@@ -26,9 +24,6 @@ struct SearchPaneView: View {
             if pattern.isEmpty {
                 patternFocused = true
             }
-            if !model.searchPluginsLoaded {
-                model.loadSearchPlugins()
-            }
         }
     }
 
@@ -37,7 +32,7 @@ struct SearchPaneView: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.isEmbeddedEngine ? "Search" : "Server Search")
+                Text("Search")
                     .font(.headline)
                 Text(headerSubtitle)
                     .font(.caption)
@@ -51,39 +46,23 @@ struct SearchPaneView: View {
                     .controlSize(.small)
             }
 
-            Button(model.isEmbeddedEngine ? "Search Settings…" : "Manage Plugins…") {
+            Button("Search Settings…") {
                 openWindow(id: "settings")
             }
             .buttonStyle(.bordered)
-            .help(model.isEmbeddedEngine
-                  ? "Configure Jackett or Prowlarr"
-                  : "Enable, install, update, or remove search plugins")
+            .help("Configure Jackett or Prowlarr")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
     }
 
     private var headerSubtitle: String {
-        if model.isEmbeddedEngine {
-            if model.searchRunning { return "Searching Jackett/Prowlarr…" }
-            let configuration = ExternalSearchSettings.shared.configuration
-            guard configuration.isConfigured else {
-                return "Configure Jackett or Prowlarr in Settings → External Search."
-            }
-            return "\(configuration.providerHint) · external indexer search"
+        if model.searchRunning { return "Searching Jackett/Prowlarr…" }
+        let configuration = ExternalSearchSettings.shared.configuration
+        guard configuration.isConfigured else {
+            return "Configure Jackett or Prowlarr in Settings → Search Provider. qBittorrent plugins are not used in embedded mode."
         }
-        if model.searchRunning {
-            return "Searching every enabled plugin on the server…"
-        }
-        guard model.searchPluginsLoaded else {
-            return "Searches every enabled plugin on the server."
-        }
-        let enabled = model.searchPlugins.filter(\.enabled).count
-        switch enabled {
-        case 0: return "No plugins are enabled — install or enable one in Settings."
-        case 1: return "1 enabled plugin"
-        default: return "\(enabled) enabled plugins"
-        }
+        return "\(configuration.providerHint) · external indexer search"
     }
 
     // MARK: - Query bar
@@ -93,10 +72,7 @@ struct SearchPaneView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField(
-                model.isEmbeddedEngine ? "Search query" : "Search pattern (all enabled plugins)",
-                text: $pattern
-            )
+            TextField("Search query", text: $pattern)
                 .textFieldStyle(.roundedBorder)
                 .focused($patternFocused)
                 .onSubmit(submit)
@@ -136,9 +112,7 @@ struct SearchPaneView: View {
         } else {
             emptyState(
                 icon: "globe",
-                text: model.isEmbeddedEngine
-                    ? "Search Jackett or Prowlarr; results land here as they arrive."
-                    : "Search the connected qBittorrent through its plugins; results land here as they arrive."
+                text: "Search Jackett or Prowlarr; results land here as they arrive."
             )
         }
     }
@@ -152,13 +126,15 @@ struct SearchPaneView: View {
                 Text(result.engineName).lineLimit(1)
             }
             TableColumn("Size") { result in
-                Text(ByteCountFormatter.string(fromByteCount: result.fileSize, countStyle: .binary))
+                Text(result.fileSize >= 0
+                     ? ByteCountFormatter.string(fromByteCount: result.fileSize, countStyle: .binary)
+                     : "—")
             }
             TableColumn("Seeds") { result in
-                Text(result.seeders.description)
+                Text(result.seeders >= 0 ? result.seeders.description : "—")
             }
             TableColumn("Leechers") { result in
-                Text(result.leechers.description)
+                Text(result.leechers >= 0 ? result.leechers.description : "—")
             }
             TableColumn("Site") { result in
                 Text(result.siteURL).lineLimit(1)

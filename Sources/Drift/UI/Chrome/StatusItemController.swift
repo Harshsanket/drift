@@ -69,7 +69,7 @@ final class StatusItemController: NSObject {
         counts.isEnabled = false
         let open = NSMenuItem(title: "Open Drift", action: #selector(openMainAction), keyEquivalent: "o")
         open.target = self
-        let connection = NSMenuItem(title: "Connection…", action: #selector(openConnectionAction), keyEquivalent: "")
+        let connection = NSMenuItem(title: "Engine Settings…", action: #selector(openSettingsAction), keyEquivalent: "")
         connection.target = self
         let pause = NSMenuItem(title: "Pause All", action: #selector(pauseAllAction), keyEquivalent: "")
         pause.target = self
@@ -168,16 +168,10 @@ final class StatusItemController: NSObject {
         pauseItem?.isEnabled = model.canPauseAll
         resumeItem?.isEnabled = model.canResumeAll
         let connectionText = model.isConnected
-            ? "Connected — qBittorrent \(model.connectionState.version ?? "")"
-            : "Connection…"
+            ? "Connected — Embedded engine"
+            : "Engine unavailable"
         if connectionItem?.title != connectionText {
             connectionItem?.title = connectionText
-        }
-        // macOS 26 can hide the item at the system level ("Allow in Menu
-        // Bar" toggle) while the app setting stays on — pick that up on
-        // the next tick so polling cadence follows actual visibility.
-        if AppSettings.shared.showMenuBarItem, !statusItem.isVisible {
-            model.recomputeSyncTier()
         }
     }
 
@@ -188,11 +182,6 @@ final class StatusItemController: NSObject {
         } else {
             writeProbeLog("[menubar] main action unavailable")
         }
-    }
-
-    @objc private func openConnectionAction() {
-        NSApp.activate()
-        model?.showConnectionSheet = true
     }
 
     @objc private func openSettingsAction() {

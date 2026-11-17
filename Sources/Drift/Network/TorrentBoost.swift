@@ -260,7 +260,7 @@ struct TorrentMeta: Sendable, Equatable {
 
 // MARK: - Boost task
 
-/// Accelerates one downloading torrent: pauses it in qBittorrent, fetches
+/// Accelerates one downloading torrent: pauses it in the embedded engine, fetches
 /// missing pieces by byte range from HTTP sources (web seeds and/or an
 /// optional mirror URL), verifies every piece against the .torrent SHA-1,
 /// writes verified bytes into place, then rechecks and resumes.
@@ -287,7 +287,7 @@ final class TorrentBoostTask: Identifiable {
     private(set) var message = ""
     private(set) var sourceCount = 0
 
-    private let engine: WebAPIEngine
+    private let engine: any TorrentEngine
     private let savePath: String
     private let extraMirror: String?
     private var meta: TorrentMeta?
@@ -298,7 +298,7 @@ final class TorrentBoostTask: Identifiable {
     private var runTask: Task<Void, Never>?
 
     init(
-        engine: WebAPIEngine,
+        engine: any TorrentEngine,
         hash: String,
         torrentName: String,
         savePath: String,
@@ -422,7 +422,7 @@ final class TorrentBoostTask: Identifiable {
             }
             try? await Task.sleep(for: .milliseconds(250))
         }
-        throw BoostError.torrentState("Could not pause the torrent in qBittorrent")
+        throw BoostError.torrentState("Could not pause the torrent in the engine")
     }
 
     private func collectMissing() async throws -> [Int] {

@@ -76,6 +76,8 @@ class Engine {
   boost::json::object startStop(boost::json::object const& request, bool start);
   boost::json::object list();
   boost::json::object details(std::string const& hash);
+  boost::json::object exportTorrent(std::string const& hash);
+  boost::json::object pieceStates(std::string const& hash);
   boost::json::object limits();
   boost::json::object setLimits(boost::json::object const& request);
   boost::json::object setFlags(boost::json::object const& request);

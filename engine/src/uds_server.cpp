@@ -100,7 +100,11 @@ void UdsServer::poll(int timeoutMs) {
   std::vector<pollfd> fds;
   fds.push_back(pollfd{listenFd_, POLLIN, 0});
   for (auto const& client : clients_) {
-    fds.push_back(pollfd{client.fd, static_cast<short>(POLLIN | POLLOUT), 0});
+    // Only ask for POLLOUT when there is queued output. POLLOUT is almost
+    // always ready, and polling it unconditionally makes the main loop spin.
+    short events = POLLIN;
+    if (!client.out.empty()) events |= POLLOUT;
+    fds.push_back(pollfd{client.fd, events, 0});
   }
   int const ready = ::poll(fds.data(), static_cast<nfds_t>(fds.size()), timeoutMs);
   if (ready < 0) {

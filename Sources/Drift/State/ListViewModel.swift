@@ -62,9 +62,7 @@ enum CategoryFilter: Hashable {
     case named(String)
 }
 
-/// The live connection state to the qBittorrent Web UI. Drift holds no torrent
-/// data of its own: with no connection there is nothing to show and nothing to
-/// act on.
+/// The live state of the embedded engine process.
 enum ConnectionState: Equatable {
     case disconnected
     case connecting
@@ -90,10 +88,8 @@ enum ConnectionState: Equatable {
         switch self {
         case .disconnected: "Not connected"
         case .connecting: "Connecting…"
-        case .connected(let version):
-            version == "embedded"
-                ? "Connected — Embedded engine"
-                : "Connected — qBittorrent \(version)"
+        case .connected:
+            "Connected — Embedded engine"
         case .failed: "Not connected"
         }
     }
@@ -104,14 +100,7 @@ enum ConnectionState: Equatable {
 final class ListViewModel {
     private var engine: (any TorrentEngine)?
     private(set) var connectionState: ConnectionState = .disconnected
-    private var reconnectTask: Task<Void, Never>?
-    private var connectedKey: String?
-    private var connectInFlight = false
-    private var pendingConnect = false
-    private var pendingPasswordOverride: String?
-
     var isConnected: Bool { connectionState.isConnected }
-    var isEmbeddedEngine: Bool { engine is EmbeddedEngine }
 
     var torrents: [TorrentSummary] = []
     var selectedIDs: Set<String> = []
@@ -138,7 +127,6 @@ final class ListViewModel {
     /// Sources handed over from the OS (magnet URLs, dropped .torrent files)
     /// that the add sheet should present pre-filled.
     var pendingAddHandoff: AddSource?
-    var showConnectionSheet = false
     var pendingRemoval: Set<String>?
     /// Whether the confirmation was opened from a “delete files” affordance,
     /// so the alert leads with file deletion.
@@ -159,22 +147,11 @@ final class ListViewModel {
         LeechGuard.shared.performBan = { [weak self] ips in
             await self?.banIPs(ips)
         }
-        LeechGuard.shared.serverBans = { [weak self] in
-            await self?.serverBannedIPs() ?? []
+        LeechGuard.shared.engineBans = { [weak self] in
+            await self?.engineBannedIPs() ?? []
         }
         LeechGuard.shared.performUnban = { [weak self] ips in
             await self?.removeBannedIPs(ips)
-        }
-        AppLifecycle.shared.onSleep = { [weak self] in self?.handleSystemSleep() }
-        AppLifecycle.shared.onWake = { [weak self] in self?.handleSystemWake() }
-        AppLifecycle.shared.start()
-        AppSettings.shared.onMenuBarItemChanged = { [weak self] in
-            self?.recomputeSyncTier()
-        }
-        NotificationCenter.default.addObserver(
-            forName: .driftConnectionSettingsSaved, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.connectionSettingsChanged() }
         }
         NotificationCenter.default.addObserver(
             forName: .driftSpeedSettingsRequested, object: nil, queue: .main
@@ -186,184 +163,38 @@ final class ListViewModel {
         ) { [weak self] _ in
             Task { @MainActor in self?.applySpeedSettings() }
         }
-        NotificationCenter.default.addObserver(
-            forName: .driftEngineModeChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.engineModeChanged() }
-        }
         refresh()
         if engine == nil, !connectionState.isConnected {
             Task { await startConnection() }
         }
     }
 
-    /// Launch flow: connect if a previous connection exists, otherwise ask for
-    /// one. A failed attempt surfaces the sheet with the error instead of
-    /// silently degrading — there is no offline mode.
+    /// Launch flow: the embedded engine is the only backend. The supervisor
+    /// owns reconnects; this wires callbacks and surfaces the first failure.
     private func startConnection() async {
-        // Verification-only: lets UI probes run without the sheet in the way.
         guard !ProcessInfo.processInfo.arguments.contains("--no-auto-connect") else {
             writeProbeLog("[sync] auto-connect suppressed")
             return
         }
-        if EngineSettings.shared.mode == .embedded {
-            await connectRealBackend()
-            if !isConnected {
-                writeProbeLog("[sync] embedded engine unavailable")
-            }
-            return
-        }
-        guard ConnectionSettings.shared.lastVersion != nil else {
-            showConnectionSheet = true
-            return
-        }
-        await connectRealBackend()
+        await connectEngine()
         if !isConnected {
-            showConnectionSheet = true
-            scheduleReconnect()
+            writeProbeLog("[sync] embedded engine unavailable")
         }
     }
 
-    /// After a Settings-window save: reconnect when not connected or when the
-    /// endpoint actually changed; a redundant save against the live endpoint
-    /// leaves the running engine alone.
-    private func connectionSettingsChanged() {
-        guard EngineSettings.shared.mode == .server else { return }
-        let settings = ConnectionSettings.shared
-        let key = "\(settings.baseUrl)|\(settings.username)"
-        guard !isConnected || key != connectedKey else { return }
-        Task {
-            await connectRealBackend()
-            if !isConnected {
-                showConnectionSheet = true
-            }
-        }
-    }
-
-    func connectRealBackend(passwordOverride: String? = nil) async {
-        guard !connectInFlight else {
-            pendingConnect = true
-            if let passwordOverride { pendingPasswordOverride = passwordOverride }
-            return
-        }
-        connectInFlight = true
-        defer { connectInFlight = false }
-        var override = passwordOverride
-        repeat {
-            pendingConnect = false
-            await performConnect(passwordOverride: override)
-            if pendingConnect {
-                override = pendingPasswordOverride ?? override
-                pendingPasswordOverride = nil
-            }
-        } while pendingConnect
-    }
-
-    private func performConnect(passwordOverride: String?) async {
-        if EngineSettings.shared.mode == .embedded {
-            await connectEmbedded()
-            return
-        }
-        writeProbeLog(
-            "[sync] connect attempt user=\(ConnectionSettings.shared.username) override=\(passwordOverride != nil)"
-        )
-        await EmbeddedEngine.shared.stop()
-        let settings = ConnectionSettings.shared
-        guard let url = WebAPIEngine.url(from: settings.baseUrl) else {
-            connectionState = .failed(message: WebAPIError.invalidURL.message)
-            writeProbeLog("[sync] invalid url \(settings.baseUrl)")
-            return
-        }
-        let previousVersion = connectionState.version
-        connectionState = .connecting
-        let password: String
-        if let passwordOverride {
-            password = passwordOverride
-        } else {
-            writeProbeLog("[sync] connect: keychain read start")
-            // Dev verification hook: a launch-arg password bypasses the
-            // Keychain entirely (ad-hoc re-signs invalidate CLI-created
-            // items' ACLs, making probe runs flaky).
-            if let dev = ProcessInfo.processInfo.arguments.first(
-                where: { $0.hasPrefix("--dev-password=") }),
-               let value = dev.split(separator: "=", maxSplits: 1).last {
-                password = String(value)
-                writeProbeLog("[sync] connect: dev override password used")
-            } else {
-                // Off the main actor: a locked keychain (or a SecurityAgent
-                // prompt on an ad-hoc build) must not freeze launch behind
-                // the dialog.
-                password = await Task.detached(priority: .userInitiated) {
-                    Keychain.password(account: "password") ?? ""
-                }.value
-                writeProbeLog("[sync] connect: keychain read done len=\(password.count)")
-            }
-        }
-        let real = WebAPIEngine(
-            base: url,
-            username: settings.username,
-            password: password
-        )
-        do {
-            let version = try await real.authenticate()
-            real.onUpdate = { [weak self] in
-                self?.refresh()
-            }
-            real.onConnectionLost = { [weak self] message in
-                self?.handleConnectionLost(message)
-            }
-            (engine as? WebAPIEngine)?.stopSync()
-            real.startSync()
-            engine = real
-            detailsCache.removeAll()
-            recomputeSyncTier()
-            if let passwordOverride {
-                // A working password wins: keep the Keychain in sync so
-                // launch-time auto-connect doesn't retry stale credentials.
-                // Fire-and-forget: a keychain prompt must not hold back the
-                // connected state.
-                Task.detached(priority: .utility) {
-                    Keychain.setPassword(passwordOverride, account: "password")
-                }
-            }
-            settings.noteConnected(version: version)
-            connectedKey = "\(settings.baseUrl)|\(settings.username)"
-            connectionState = .connected(version: version)
-            settings.testStatus = .success("Connected — qBittorrent \(version)")
-            reconnectTask?.cancel()
-            reconnectTask = nil
-            refresh()
-            loadSearchPlugins()
-            writeProbeLog("[sync] connected \(version)")
-        } catch {
-            let message = (error as? WebAPIError)?.message ?? error.localizedDescription
-            // A failed re-point keeps the previous, still-running backend so
-            // the status bar reports the connection that actually exists.
-            connectionState = previousVersion.map { .connected(version: $0) }
-                ?? .failed(message: message)
-            settings.testStatus = .error(message)
-            writeProbeLog("[sync] connect failed: \(message)")
-        }
-    }
-
-    /// Embedded mode: no URL/credentials; the child process is the backend.
-    /// The supervisor owns reconnects, so this mostly wires callbacks and
-    /// surfaces the first failure.
-    private func connectEmbedded() async {
+    func connectEngine() async {
         let previousVersion = connectionState.version
         connectionState = .connecting
         let embedded = EmbeddedEngine.shared
         embedded.onUpdate = { [weak self] in self?.refresh() }
-        embedded.onConnectionLost = { [weak self] message in self?.handleConnectionLost(message) }
+        embedded.onConnectionLost = { [weak self] message in
+            self?.handleConnectionLost(message)
+        }
         do {
             let version = try await embedded.start()
-            (engine as? WebAPIEngine)?.stopSync()
-            (engine as? EmbeddedEngine)?.terminateNow()
             engine = embedded
             detailsCache.removeAll()
-            connectedKey = "embedded"
             connectionState = .connected(version: version)
-            connectionSettingsConnected()
             refresh()
             writeProbeLog("[sync] embedded connected")
         } catch {
@@ -373,42 +204,9 @@ final class ListViewModel {
         }
     }
 
-    private func connectionSettingsConnected() {
-        reconnectTask?.cancel()
-        reconnectTask = nil
-    }
-
-    private func engineModeChanged() {
-        writeProbeLog("[sync] engine mode -> \(EngineSettings.shared.mode.rawValue)")
-        Task {
-            await connectRealBackend()
-            if !isConnected, EngineSettings.shared.mode == .server {
-                showConnectionSheet = true
-            }
-        }
-    }
-
     private func handleConnectionLost(_ message: String) {
-        guard !isConnected else { return }
         connectionState = .failed(message: message)
         writeProbeLog("[sync] connection lost: \(message)")
-        scheduleReconnect()
-    }
-
-    /// qBittorrent may restart at any time; retry the saved endpoint until it
-    /// is back (or the credentials/URL are changed).
-    private func scheduleReconnect() {
-        guard EngineSettings.shared.mode == .server else { return }
-        guard reconnectTask == nil else { return }
-        reconnectTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
-                guard let self, !self.isConnected else { return }
-                guard ConnectionSettings.shared.lastVersion != nil else { return }
-                await self.connectRealBackend()
-            }
-            self?.reconnectTask = nil
-        }
     }
 
     func toggleDetails() {
@@ -595,9 +393,7 @@ final class ListViewModel {
         EngineHolder.shared.current = engine
         let updated = engine?.loadTorrents() ?? []
         if updated != torrents { torrents = updated }
-        if let real = engine as? WebAPIEngine {
-            PowerManagementManager.shared.noteObservation(active: real.transferActivity())
-        } else if let embedded = engine as? EmbeddedEngine {
+        if let embedded = engine as? EmbeddedEngine {
             PowerManagementManager.shared.noteObservation(active: embedded.transferActivity())
             if embedded.isConnected, !connectionState.isConnected {
                 connectionState = .connected(version: "embedded")
@@ -605,9 +401,9 @@ final class ListViewModel {
         }
         CompletionMonitor.shared.observe(torrents: torrents)
         reloadOrganizers()
-        statistics = engine?.serverStatistics()
+        statistics = engine?.engineStatistics()
         if let stats = statistics {
-            AppStats.shared.recordServerTick(
+            AppStats.shared.recordEngineTick(
                 receivedSession: stats.received,
                 sentSession: stats.sent,
                 downloadSpeed: stats.downloadSpeed,
@@ -792,7 +588,7 @@ final class ListViewModel {
         }
     }
 
-    func serverBannedIPs() async -> [String] {
+    func engineBannedIPs() async -> [String] {
         await engine?.bannedIPs() ?? []
     }
 
@@ -810,54 +606,6 @@ final class ListViewModel {
         guard visible != windowVisible else { return }
         windowVisible = visible
         writeProbeLog("[lifecycle] window \(visible ? "visible" : "hidden")")
-        recomputeSyncTier()
-    }
-
-    func recomputeSyncTier() {
-        guard !(engine is EmbeddedEngine) else { return }
-        guard let real = engine as? WebAPIEngine else { return }
-        let itemPresent = AppSettings.shared.showMenuBarItem
-            && StatusItemController.shared.isItemVisible
-        let targetActive = windowVisible
-        let targetSummary = !windowVisible && itemPresent
-        if !targetActive && !targetSummary {
-            real.suspendSync()
-            return
-        }
-        let tier: WebAPIEngine.SyncTier = targetActive ? .active : .summary
-        if real.isSuspended {
-            Task {
-                if let version = await real.resumeSync() {
-                    connectionState = .connected(version: version)
-                }
-                real.setSyncTier(tier)
-            }
-        } else {
-            real.setSyncTier(tier)
-        }
-    }
-
-    func handleSystemSleep() {
-        writeProbeLog("[lifecycle] system sleep — sync suspended")
-        (engine as? WebAPIEngine)?.suspendSync()
-    }
-
-    func handleSystemWake() {
-        writeProbeLog("[lifecycle] system wake — sync resuming")
-        Task {
-            if let real = engine as? WebAPIEngine {
-                if let version = await real.resumeSync() {
-                    connectionState = .connected(version: version)
-                    reconnectTask?.cancel()
-                    reconnectTask = nil
-                } else if !isConnected {
-                    connectionState = .failed(message: "qBittorrent is not reachable")
-                    scheduleReconnect()
-                }
-            }
-            refresh()
-            recomputeSyncTier()
-        }
     }
 
     func transferStats() -> (downloading: Int, seeding: Int, progress: Double) {
@@ -941,28 +689,11 @@ final class ListViewModel {
 
     // MARK: - Global transfer controls (A6)
 
-    private(set) var statistics: ServerStatistics?
-    private(set) var altSpeedsActive = false
+    private(set) var statistics: EngineStatistics?
     var showStatsPane = false
     var showUpdateSheet = false
 
-    func toggleAltSpeeds() {
-        guard let engine, isConnected else { return }
-        engine.toggleSpeedLimitsMode()
-        Task {
-            if let alternate = await engine.speedLimitsMode() {
-                altSpeedsActive = alternate
-            }
-        }
-        writeProbeLog("[engine] toggleSpeedLimitsMode")
-    }
-
-    // MARK: - RSS and search panes (A8/A9)
-
-    private(set) var rssFeeds: [RSSFeed] = []
-    private(set) var selectedRSSFeed: RSSFeed?
-    private(set) var rssContentLoaded = false
-    var showRSSPane = false
+    // MARK: - Search and statistics panes
 
     private(set) var searchResults: [SearchResult] = []
     private(set) var searchRunning = false
@@ -971,257 +702,19 @@ final class ListViewModel {
     private var activeSearchID: Int64?
     private var searchPollTask: Task<Void, Never>?
 
-    // MARK: - Search plugins (server-installed indexer scripts)
-
-    private(set) var searchPlugins: [SearchPlugin] = []
-    private(set) var searchPluginsLoaded = false
-    private(set) var searchPluginsBusy = false
-    private(set) var searchPluginsStatus: String?
-    var selectedSearchPluginName: String?
-
-    var selectedSearchPlugin: SearchPlugin? {
-        guard let selectedSearchPluginName else { return nil }
-        return searchPlugins.first { $0.name == selectedSearchPluginName }
-    }
-
-    func selectSearchPlugin(_ plugin: SearchPlugin) {
-        showStatsPane = false
-        showRSSPane = false
-        showSearchPane = false
-        selectedIDs.removeAll()
-        selectedSearchPluginName = plugin.name
-        writeProbeLog("[search] plugin pane \(plugin.name)")
-    }
-
-    func closeSearchPluginPane() {
-        guard selectedSearchPluginName != nil else { return }
-        selectedSearchPluginName = nil
-        writeProbeLog("[search] plugin pane closed")
-    }
-
-    /// Clicking a status row always returns the detail column to the torrent
-    /// list, whichever sidebar pane was showing.
     func dismissSidebarPanes() {
         showStatsPane = false
-        showRSSPane = false
         showSearchPane = false
-        selectedSearchPluginName = nil
-    }
-
-    func loadSearchPlugins() {
-        guard !searchPluginsBusy else { return }
-        Task {
-            for _ in 0..<10 {
-                guard let engine, isConnected else {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    continue
-                }
-                if engine is EmbeddedEngine {
-                    // External search has no server plugin list; the pane
-                    // and Settings surface Jackett/Prowlarr instead.
-                    searchPlugins = []
-                    searchPluginsLoaded = true
-                    searchPluginsStatus = nil
-                    return
-                }
-                searchPluginsBusy = true
-                await refreshSearchPlugins(using: engine)
-                searchPluginsBusy = false
-                return
-            }
-            searchPluginsStatus = "Connect to a server to load its search plugins."
-        }
-    }
-
-    private func refreshSearchPlugins(using engine: any TorrentEngine) async {
-        guard let plugins = await engine.searchPlugins() else {
-            searchPluginsStatus = "Couldn’t load search plugins from the server."
-            return
-        }
-        searchPlugins = plugins.sorted {
-            $0.fullName.localizedCaseInsensitiveCompare($1.fullName) == .orderedAscending
-        }
-        searchPluginsLoaded = true
-        searchPluginsStatus = nil
-        if let name = selectedSearchPluginName,
-           !searchPlugins.contains(where: { $0.name == name }) {
-            selectedSearchPluginName = nil
-        }
-        writeProbeLog("[search] plugins loaded count=\(searchPlugins.count)")
-    }
-
-    func setSearchPluginEnabled(_ plugin: SearchPlugin, enabled: Bool) {
-        guard let engine else { return }
-        searchPluginsBusy = true
-        Task {
-            if await engine.setSearchPluginsEnabled(names: [plugin.name], enabled: enabled) {
-                await refreshSearchPlugins(using: engine)
-                searchPluginsStatus = "\(enabled ? "Enabled" : "Disabled") \(plugin.fullName)."
-                writeProbeLog("[search] plugin \(plugin.name) \(enabled ? "enabled" : "disabled")")
-            } else {
-                searchPluginsStatus = "Couldn’t \(enabled ? "enable" : "disable") \(plugin.fullName)."
-            }
-            searchPluginsBusy = false
-        }
-    }
-
-    func uninstallSearchPlugin(_ plugin: SearchPlugin) {
-        guard let engine else { return }
-        searchPluginsBusy = true
-        Task {
-            if await engine.uninstallSearchPlugins(names: [plugin.name]) {
-                await refreshSearchPlugins(using: engine)
-                searchPluginsStatus = "Removed \(plugin.fullName)."
-                writeProbeLog("[search] plugin \(plugin.name) uninstalled")
-            } else {
-                searchPluginsStatus = "Couldn’t remove \(plugin.fullName)."
-            }
-            searchPluginsBusy = false
-        }
-    }
-
-    func installSearchPlugins(from text: String) {
-        let sources = text
-            .split(whereSeparator: { $0.isWhitespace || $0 == "," })
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard let engine, !sources.isEmpty else { return }
-        searchPluginsBusy = true
-        Task {
-            if await engine.installSearchPlugins(sources: sources) {
-                await refreshSearchPlugins(using: engine)
-                searchPluginsStatus = sources.count == 1
-                    ? "Installed or updated 1 plugin."
-                    : "Installed or updated \(sources.count) plugins."
-                writeProbeLog("[search] installed plugins=\(sources.count)")
-            } else {
-                searchPluginsStatus = "Couldn’t install the plugin. Check the URL and the server’s Python setup."
-            }
-            searchPluginsBusy = false
-        }
-    }
-
-    func updateSearchPlugins() {
-        guard let engine else { return }
-        searchPluginsBusy = true
-        Task {
-            if await engine.updateSearchPlugins() {
-                searchPluginsStatus = "Checking for updates…"
-                // The server compares versions and applies updates in the
-                // background after responding, so refresh once it has had
-                // a moment to finish.
-                try? await Task.sleep(for: .seconds(4))
-                await refreshSearchPlugins(using: engine)
-                searchPluginsStatus = "Update check requested; qBittorrent installs newer versions in the background."
-                writeProbeLog("[search] plugin update check requested")
-            } else {
-                searchPluginsStatus = "Couldn’t check for plugin updates."
-            }
-            searchPluginsBusy = false
-        }
-    }
-
-    func toggleRSSPane(_ enabled: Bool) {
-        showRSSPane = enabled
-        selectedIDs.removeAll()
-        if enabled {
-            selectedSearchPluginName = nil
-            showSearchPane = false
-            showStatsPane = false
-            loadRSS()
-        }
-        writeProbeLog("[engine] rss pane \(enabled)")
     }
 
     func toggleStatsPane(_ enabled: Bool) {
         showStatsPane = enabled
         selectedIDs.removeAll()
         if enabled {
-            selectedSearchPluginName = nil
             showSearchPane = false
-            showRSSPane = false
             refreshStatistics()
         }
         writeProbeLog("[engine] stats pane \(enabled)")
-    }
-
-    func loadRSS() {
-        Task {
-            for _ in 0..<10 {
-                guard let engine, isConnected else {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    continue
-                }
-                let feeds = await engine.rssFeeds()
-                if let feeds {
-                    rssFeeds = feeds
-                    if let current = selectedRSSFeed,
-                       let fresh = feeds.first(where: { $0.id == current.id }) {
-                        selectedRSSFeed = fresh
-                    } else {
-                        selectedRSSFeed = feeds.first
-                    }
-                    rssContentLoaded = true
-                    writeProbeLog("[engine] rss feeds loaded n=\(feeds.count)")
-                } else {
-                    rssContentLoaded = true
-                    writeProbeLog("[probe] rss ended nil")
-                }
-                return
-            }
-            writeProbeLog("[probe] rss never connected")
-        }
-    }
-
-    func selectRSSFeed(_ feed: RSSFeed?) {
-        selectedRSSFeed = feed
-    }
-
-    func addRSSFeed(url: String) {
-        engine?.addRSSFeed(url: url, path: nil)
-        Task {
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            loadRSS()
-        }
-        writeProbeLog("[engine] rss add feed")
-    }
-
-    func removeRSSFeed(_ feed: RSSFeed) {
-        engine?.removeRSSItem(path: feed.name)
-        if selectedRSSFeed?.id == feed.id { selectedRSSFeed = nil }
-        Task {
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            loadRSS()
-        }
-        writeProbeLog("[engine] rss remove feed")
-    }
-
-    func refreshRSSFeed(_ feed: RSSFeed) {
-        engine?.refreshRSSItem(path: feed.name)
-        Task {
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            loadRSS()
-        }
-        writeProbeLog("[engine] rss refresh feed")
-    }
-
-    func markRSSArticleRead(_ article: RSSArticle, in feed: RSSFeed) {
-        engine?.markRSSRead(path: feed.name, articleId: article.id)
-        loadRSS()
-        writeProbeLog("[engine] rss mark read")
-    }
-
-    func markRSSFeedRead(_ feed: RSSFeed) {
-        engine?.markRSSRead(path: feed.name, articleId: nil)
-        loadRSS()
-        writeProbeLog("[engine] rss mark feed read")
-    }
-
-    func downloadRSSTorrent(_ article: RSSArticle) {
-        let url = article.torrentHash.map { "magnet:?xt=urn:btih:\($0)" } ?? article.torrentURL
-        guard !url.isEmpty else { return }
-        handleOSHandoff(.magnetOrURL(url))
-        writeProbeLog("[engine] rss download article")
     }
 
     // MARK: - Search (A9)
@@ -1231,11 +724,7 @@ final class ListViewModel {
     func toggleSearchPane(_ enabled: Bool) {
         showSearchPane = enabled
         selectedIDs.removeAll()
-        if enabled {
-            showStatsPane = false
-            showRSSPane = false
-            selectedSearchPluginName = nil
-        }
+        if enabled { showStatsPane = false }
         writeProbeLog("[search] pane \(enabled)")
     }
 
@@ -1248,24 +737,17 @@ final class ListViewModel {
         searchRunning = true
         searchQuery = trimmed
         Task {
-            if engine is EmbeddedEngine {
-                guard ExternalSearchSettings.shared.isConfigured else {
-                    searchRunning = false
-                    searchNotice = "Configure Jackett or Prowlarr in Settings → External Search, then try again."
-                    writeProbeLog("[search] external search not configured")
-                    return
-                }
-            } else if let plugins = await engine.searchPlugins(), plugins.isEmpty {
+            guard ExternalSearchSettings.shared.isConfigured else {
                 searchRunning = false
-                searchNotice = "qBittorrent has no search plugins enabled. Install or enable one in Settings → Search Plugins (or qBittorrent’s Search tab), then try again."
-                writeProbeLog("[search] no enabled plugins")
+                searchNotice = "Configure Jackett or Prowlarr in Settings → External Search, then try again."
+                writeProbeLog("[search] external search not configured")
                 return
             }
             let id = await engine.startSearch(pattern: trimmed, category: "all")
             activeSearchID = id
             guard id != nil else {
                 searchRunning = false
-                searchNotice = "The server could not start the search."
+                searchNotice = "The engine could not start the search."
                 writeProbeLog("[search] start failed")
                 return
             }
@@ -1323,7 +805,7 @@ final class ListViewModel {
     // MARK: - Statistics dialog (A6)
 
     func refreshStatistics() {
-        statistics = engine?.serverStatistics()
+        statistics = engine?.engineStatistics()
         writeProbeLog("[engine] statistics refreshed")
     }
 
@@ -1347,28 +829,19 @@ final class ListViewModel {
         writeProbeLog("[engine] setGlobalUploadLimit \(bytesPerSecond)")
     }
 
-    // MARK: - Server speed preferences (A7)
+    // MARK: - Speed preferences (A7)
 
-    /// The Settings window reaches the engine through these handlers:
-    /// requested → snapshot of the server's speed limits; saved → patch.
     private func loadSpeedSettings() {
         guard let engine, isConnected else { return }
         Task {
             let dl = await engine.globalDownloadLimit()
             let up = await engine.globalUploadLimit()
-            let altDl = await engine.alternativeDownloadLimit()
-            let altUp = await engine.alternativeUploadLimit()
             let speed = SpeedSettings.shared
             if let dl { speed.downloadLimit = max(0, dl / 1024) }
             if let up { speed.uploadLimit = max(0, up / 1024) }
-            if let altDl { speed.altDownloadLimit = max(0, altDl / 1024) }
-            if let altUp { speed.altUploadLimit = max(0, altUp / 1024) }
             speed.loaded = true
             writeProbeLog(
-                "[settings] speed prefs loaded dl=\(speed.downloadLimit)"
-                    + " up=\(speed.uploadLimit)"
-                    + " altDl=\(speed.altDownloadLimit)"
-                    + " altUp=\(speed.altUploadLimit)"
+                "[settings] speed prefs loaded dl=\(speed.downloadLimit) up=\(speed.uploadLimit)"
             )
         }
     }
@@ -1379,15 +852,10 @@ final class ListViewModel {
             return
         }
         let speed = SpeedSettings.shared
-        engine.applyPreferences([
-            "dl_limit": Int(max(0, speed.downloadLimit)),
-            "up_limit": Int(max(0, speed.uploadLimit)),
-            "alt_dl_limit": Int(max(0, speed.altDownloadLimit)),
-            "alt_up_limit": Int(max(0, speed.altUploadLimit))
-        ])
+        engine.setGlobalDownloadLimit(max(0, speed.downloadLimit) * 1024)
+        engine.setGlobalUploadLimit(max(0, speed.uploadLimit) * 1024)
         writeProbeLog(
-            "[settings] speed prefs applied dl=\(speed.downloadLimit)"
-                + " up=\(speed.uploadLimit)"
+            "[settings] speed prefs applied dl=\(speed.downloadLimit) up=\(speed.uploadLimit)"
         )
     }
 

@@ -4,8 +4,6 @@ import AppKit
 struct SettingsView: View {
     @Bindable var model: ListViewModel
     @Bindable private var app = AppSettings.shared
-    @Bindable private var connection = ConnectionSettings.shared
-    @Bindable private var engineSettings = EngineSettings.shared
     @Bindable private var externalSearch = ExternalSearchSettings.shared
     @Bindable private var speed = SpeedSettings.shared
     @Bindable private var leech = LeechGuard.shared
@@ -14,17 +12,11 @@ struct SettingsView: View {
     @State private var updates = UpdateChecker.shared
     @Environment(\.openWindow) private var openWindow
 
-    @State private var baseUrl = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var testing = false
-    @State private var pluginSource = ""
-
     @State private var leecherText = ""
     @State private var playerText = ""
     @State private var whitelistClientText = ""
     @State private var whitelistIPText = ""
-    @State private var serverBans: [String] = []
+    @State private var engineBans: [String] = []
     @State private var externalSearchURL = ""
     @State private var externalSearchKey = ""
     @State private var externalSearchStatus: String?
@@ -57,21 +49,6 @@ struct SettingsView: View {
     var body: some View {
         Form {
             if !screenshotMode {
-            Section("Torrent Engine") {
-                Picker("Engine", selection: $engineSettings.mode) {
-                    ForEach(EngineMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                Text(engineSettings.mode.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Embedded mode runs a bundled libtorrent engine; no Docker or separate qBittorrent install is needed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("General") {
                 HStack {
                     TextField("Default save destination", text: $app.defaultSavePath)
@@ -83,84 +60,29 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Toggle("Show menu bar status item", isOn: $app.showMenuBarItem)
                 Toggle("Notify when a download completes", isOn: $app.completionNotifications)
-                Toggle("RSS Feeds", isOn: $app.rssEnabled)
                 Toggle("Statistics", isOn: $app.statsEnabled)
-                Text("RSS adds a Feeds section to the sidebar; Statistics opens a full transfer-stats page. Turning either off hides it from the sidebar.")
+                Text("Statistics opens a full transfer-stats page. Turning it off hides it from the sidebar.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if engineSettings.mode == .server {
-            Section("Connection") {
-                TextField("Web UI URL", text: $baseUrl)
-                    .textFieldStyle(.roundedBorder)
-                    .placeholder(when: baseUrl.isEmpty) {
-                        Text("http://localhost:8080").foregroundStyle(.tertiary)
-                    }
-                TextField("Username", text: $username)
-                    .textFieldStyle(.roundedBorder)
-                SecureField("Password", text: $password)
-                    .textFieldStyle(.roundedBorder)
-
-                if let status = connection.testStatus {
-                    HStack(spacing: 6) {
-                        Image(systemName: status.isSuccess
-                              ? "checkmark.circle.fill"
-                              : "xmark.circle.fill")
-                        Text(status.text)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(status.isSuccess ? Color.green : Color.red)
-                }
-
-                HStack {
-                    Button(testing ? "Testing…" : "Test Connection") {
-                        Task { await runTest() }
-                    }
-                    .disabled(testing)
-
-                    Spacer()
-
-                    Button("Save") {
-                        connection.save(baseUrl: baseUrl, username: username, password: password)
-                        password = ""
-                        writeProbeLog("[settings] connection saved url=\(baseUrl)")
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(WebAPIEngine.url(from: baseUrl) == nil)
-                }
-            }
-            }
-            }
-
             if !screenshotMode {
-            if engineSettings.mode == .server {
-            Section("Transfer Speeds (server)") {
+            Section("Transfer Limits") {
                 speedField("Download limit (KiB/s)", value: $speed.downloadLimit)
                 speedField("Upload limit (KiB/s)", value: $speed.uploadLimit)
-                speedField("Alternative download limit (KiB/s)", value: $speed.altDownloadLimit)
-                speedField("Alternative upload limit (KiB/s)", value: $speed.altUploadLimit)
-
                 HStack {
-                    Text("Apply writes these to the connected qBittorrent's "
-                        + "transfer settings. 0 = unlimited.")
+                    Text("Applies to the embedded engine. 0 = unlimited.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Apply to server") {
+                    Button("Apply") {
                         NotificationCenter.default.post(name: .driftSpeedSettingsSaved, object: self)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!speed.loaded)
+                    .disabled(!speed.loaded || !model.isConnected)
                 }
             }
 
-            Section("Search Plugins") {
-                searchPluginsSection
-            }
-            }
-            if engineSettings.mode == .embedded {
             Section("Import from qBittorrent") {
                 HStack {
                     TextField("BT_backup folder", text: $qbBackupPath)
@@ -179,7 +101,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Text("Reads qBittorrent’s BT_backup folder: .torrent metadata plus fastresume progress, file priorities, category, tags and trackers. The download folder replaces the server’s save path.")
+                    Text("Reads qBittorrent’s BT_backup folder: .torrent metadata plus fastresume progress, file priorities, category, tags and trackers. The download folder replaces qBittorrent’s save path.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -191,12 +113,9 @@ struct SettingsView: View {
                 }
             }
 
-            Section("External Search") {
+            Section("Search Provider (Jackett / Prowlarr)") {
                 TextField("Jackett / Prowlarr URL", text: $externalSearchURL)
                     .textFieldStyle(.roundedBorder)
-                    .placeholder(when: externalSearchURL.isEmpty) {
-                        Text("http://localhost:9117").foregroundStyle(.tertiary)
-                    }
                 SecureField("API key", text: $externalSearchKey)
                     .textFieldStyle(.roundedBorder)
                 if let status = externalSearchStatus {
@@ -205,7 +124,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Text("Embedded search queries Jackett or Prowlarr directly. The API key is stored in the Keychain; no search plugins are downloaded or executed.")
+                    Text("Embedded search queries Jackett or Prowlarr directly. qBittorrent Python plugins are server-only and are not used. The API key is stored in the Keychain; no plugin code is downloaded or executed.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -221,7 +140,6 @@ struct SettingsView: View {
                 }
             }
             }
-            if engineSettings.mode == .embedded {
             Section("Embedded Engine") {
                 HStack {
                     Text("Restart the engine if status looks stale. Torrent state is saved to disk first.")
@@ -240,8 +158,6 @@ struct SettingsView: View {
                     }
                     .disabled(embeddedRestarting)
                 }
-            }
-            }
             }
 
             Section("Connection Booster") {
@@ -329,6 +245,7 @@ struct SettingsView: View {
                 }
             }
             }
+            }
         }
         .formStyle(.grouped)
         .sheet(isPresented: $updatePromptVisible) {
@@ -338,8 +255,6 @@ struct SettingsView: View {
         .frame(width: 520, height: 540)
         .preferredColorScheme(app.appearance.colorScheme)
         .onAppear {
-            baseUrl = connection.baseUrl
-            username = connection.username
             leecherText = leech.config.leecherClients.joined(separator: "\n")
             playerText = leech.config.playerClients.joined(separator: "\n")
             whitelistClientText = leech.config.whitelistClients.joined(separator: "\n")
@@ -355,8 +270,7 @@ struct SettingsView: View {
             WindowOpener.openSettings = { openWindow(id: "settings") }
             openWindow(id: "main")
             NotificationCenter.default.post(name: .driftSpeedSettingsRequested, object: self)
-            if model.isConnected { model.loadSearchPlugins() }
-            Task { serverBans = await leech.serverBans?() ?? [] }
+            Task { engineBans = await leech.engineBans?() ?? [] }
         }
         .task {
             TunnelService.shared.refresh()
@@ -440,13 +354,13 @@ struct SettingsView: View {
             }
         }
 
-        DisclosureGroup("Server-banned IPs (\(serverBans.count))") {
-            if serverBans.isEmpty {
-                Text("None. (Requires an active connection.)")
+        DisclosureGroup("Banned IPs (\(engineBans.count))") {
+            if engineBans.isEmpty {
+                Text("None. (Requires a running engine.)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(serverBans, id: \.self) { ip in
+                ForEach(engineBans, id: \.self) { ip in
                     HStack {
                         Text(ip)
                             .monospaced()
@@ -454,7 +368,7 @@ struct SettingsView: View {
                         Button("Remove") {
                             Task {
                                 await leech.performUnban?([ip])
-                                serverBans = await leech.serverBans?() ?? []
+                                engineBans = await leech.engineBans?() ?? []
                             }
                         }
                         .controlSize(.small)
@@ -462,7 +376,7 @@ struct SettingsView: View {
                 }
             }
             Button("Refresh") {
-                Task { serverBans = await leech.serverBans?() ?? [] }
+                Task { engineBans = await leech.engineBans?() ?? [] }
             }
             .controlSize(.small)
         }
@@ -475,125 +389,7 @@ struct SettingsView: View {
         case .shadow:
             "Decisions are logged for review, nothing is banned automatically yet."
         case .live:
-            "Matching peers are banned server-side immediately (banned_IPs)."
-        }
-    }
-
-    // MARK: - Search plugins
-
-    @ViewBuilder
-    private var searchPluginsSection: some View {
-        Text("Search plugins are small Python scripts qBittorrent runs on the server — one per torrent site. Every enabled plugin is queried when you start a server search. Drift does not run plugins itself; the sidebar lists each installed plugin with its categories and site.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-        if model.searchPlugins.isEmpty {
-            if model.searchPluginsBusy {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading plugins…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Text(model.isConnected
-                     ? "No plugins installed yet. Paste a raw .py plugin URL below."
-                     : "Connect to a server to see and manage its plugins.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            ForEach(model.searchPlugins) { plugin in
-                searchPluginRow(plugin)
-            }
-        }
-
-        HStack(spacing: 8) {
-            TextField("Plugin .py URL (comma-separated for several)", text: $pluginSource)
-                .textFieldStyle(.roundedBorder)
-            Button("Install") {
-                model.installSearchPlugins(from: pluginSource)
-                pluginSource = ""
-            }
-            .disabled(
-                pluginSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || model.searchPluginsBusy || !model.isConnected
-            )
-            .help("Installs a plugin, or updates it if the same plugin name is already installed")
-        }
-
-        HStack(spacing: 10) {
-            Button("Refresh") {
-                model.loadSearchPlugins()
-            }
-            .disabled(model.searchPluginsBusy || !model.isConnected)
-
-            Button("Check for Updates") {
-                model.updateSearchPlugins()
-            }
-            .disabled(model.searchPluginsBusy || !model.isConnected)
-            .help("Ask qBittorrent to compare installed plugins with its update feed")
-
-            if model.searchPluginsBusy {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Spacer()
-        }
-
-        if let status = model.searchPluginsStatus {
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-
-        Text("Official plugins are published as .py files in the qBittorrent search-plugins repository. Uninstalling removes the script from the server; disabling keeps it installed but excludes it from searches.")
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-    }
-
-    private func searchPluginRow(_ plugin: SearchPlugin) -> some View {
-        HStack(spacing: 8) {
-            Toggle("", isOn: Binding(
-                get: { plugin.enabled },
-                set: { model.setSearchPluginEnabled(plugin, enabled: $0) }
-            ))
-            .labelsHidden()
-            .toggleStyle(.checkbox)
-            .disabled(model.searchPluginsBusy)
-            .help(plugin.enabled ? "Disable this plugin" : "Enable this plugin")
-
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(plugin.fullName)
-                        .font(.callout)
-                        .lineLimit(1)
-                    if !plugin.version.isEmpty {
-                        Text("v\(plugin.version)")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(plugin.categories.isEmpty
-                     ? "All categories"
-                     : plugin.categories.joined(separator: " · "))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Button(role: .destructive) {
-                model.uninstallSearchPlugin(plugin)
-            } label: {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.searchPluginsBusy)
-            .help("Uninstall \(plugin.fullName)")
+            "Matching peers are banned in the embedded engine immediately."
         }
     }
 
@@ -655,7 +451,7 @@ struct SettingsView: View {
             }
         }
 
-        Text("Only Drift's own traffic (Web API, Direct Downloads, update checks) is routed through the tunnel — a private utun interface is used inside this app alone; no system routes, DNS, or app-wide VPN is touched. While the tunnel is down, Drift refuses internet-bound requests instead of leaking. Starting requires your admin password once, to create the private interface. WireGuard profiles carry their interface address; OpenVPN profiles need a static `ifconfig` directive in the config (server-pushed addresses get a placeholder IP). For servers requiring auth-user-pass, include the credentials inline in the profile.")
+        Text("The tunnel currently covers Drift's HTTP requests (external search, booster downloads and update checks). It does not route torrent peer traffic yet; torrents use the embedded engine's direct connection. A private utun interface is used inside this app alone; no system routes or DNS are changed. Starting requires your admin password once. WireGuard profiles carry their interface address; OpenVPN profiles need a static `ifconfig` directive in the config. For servers requiring auth-user-pass, include the credentials inline in the profile.")
             .font(.caption)
             .foregroundStyle(.secondary)
     }
@@ -825,7 +621,7 @@ struct SettingsView: View {
                             .padding(.vertical, 2)
                             .background(Capsule().fill(.quaternary))
                     }
-                    Text("An open-source qBittorrent client built for macOS, with an optional WireGuard tunnel.")
+                    Text("An open-source native BitTorrent client for macOS, with an optional WireGuard tunnel.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -840,7 +636,7 @@ struct SettingsView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            Text("Thanks to the qBittorrent engine and its contributors — Drift is a native Mac interface for their Web API.")
+            Text("Built on libtorrent and inspired by qBittorrent. Thanks to their contributors.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -966,22 +762,4 @@ struct SettingsView: View {
         }
     }
 
-    private func runTest() async {
-        testing = true
-        let effectivePassword = password.isEmpty ? connection.password : password
-        await connection.test(baseUrl: baseUrl, username: username, password: effectivePassword)
-        testing = false
-    }
-}
-
-private extension View {
-    func placeholder<Placeholder: View>(
-        when condition: Bool,
-        @ViewBuilder placeholder: () -> Placeholder
-    ) -> some View {
-        ZStack(alignment: .leading) {
-            if condition { placeholder() }
-            self
-        }
-    }
 }

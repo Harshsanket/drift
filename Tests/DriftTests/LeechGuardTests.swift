@@ -7,14 +7,14 @@ struct BannedIPsShapingTests {
     @Test("split trims whitespace and drops empties")
     func split() {
         #expect(
-            WebAPIEngine.splitBannedIPs(" 1.1.1.1 \n\n9.9.9.9\n") == ["1.1.1.1", "9.9.9.9"]
+            BannedIPPreferences.split(" 1.1.1.1 \n\n9.9.9.9\n") == ["1.1.1.1", "9.9.9.9"]
         )
     }
 
     @Test("merge keeps server order, appends new, dedupes")
     func merge() {
         #expect(
-            WebAPIEngine.mergeBannedIPs(
+            BannedIPPreferences.merge(
                 existing: ["1.1.1.1", " 2.2.2.2 "], new: ["2.2.2.2", "3.3.3.3", ""]
             )
                 == ["1.1.1.1", "2.2.2.2", "3.3.3.3"]
@@ -24,7 +24,7 @@ struct BannedIPsShapingTests {
     @Test("remove clears matching entries and keeps others")
     func remove() {
         #expect(
-            WebAPIEngine.removeBannedIPs(
+            BannedIPPreferences.remove(
                 existing: ["1.1.1.1", "2.2.2.2", "3.3.3.3"],
                 remove: [" 2.2.2.2 ", "5.5.5.5"]
             )

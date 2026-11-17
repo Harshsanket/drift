@@ -39,8 +39,8 @@ final class DownloadCenter {
             writeProbeLog("[booster] boost ignored: booster disabled")
             return nil
         }
-        guard let real = EngineHolder.shared.current as? WebAPIEngine else {
-            writeProbeLog("[booster] boost needs a connected web engine")
+        guard let real = EngineHolder.shared.current else {
+            writeProbeLog("[booster] boost needs a connected engine")
             return nil
         }
         let existing = boosts.first { $0.hash == id && $0.status != .failed && $0.status != .done }
@@ -71,7 +71,7 @@ final class DownloadCenter {
         let seen = Set(torrents.map(\.hash))
         boostable = boostable.filter { seen.contains($0.key) }
         guard !torrents.isEmpty else { return }
-        guard let real = EngineHolder.shared.current as? WebAPIEngine else { return }
+        guard let real = EngineHolder.shared.current else { return }
         for torrent in torrents {
             let current = boostable[torrent.hash]
             if let current, Date().timeIntervalSince(current.fresh) < 3600 { continue }

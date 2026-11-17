@@ -82,7 +82,7 @@ struct PeersTabView: View {
                 }
                 .disabled(selectedRows.isEmpty)
             }
-            .help("Right-click to ban selected peers (server-side permanent IP ban)")
+            .help("Right-click to ban selected peers (permanent IP ban)")
         }
     }
 }

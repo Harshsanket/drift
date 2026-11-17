@@ -44,8 +44,7 @@ protocol TorrentEngine: Sendable {
     func editWebSeed(id: String, oldURL: String, newURL: String)
     func removeWebSeeds(id: String, urls: [String])
 
-    // Peer management (B1): bans persist server-side via the banned_IPs
-    // preference (stock qB has no per-peer ban endpoint).
+    // Peer management: bans persist in the embedded engine session.
     func bannedIPs() async -> [String]
     func banIPs(_ ips: [String]) async
     func unbanIPs(_ ips: [String]) async
@@ -55,26 +54,14 @@ protocol TorrentEngine: Sendable {
     func globalUploadLimit() async -> Int64?
     func setGlobalDownloadLimit(_ bytesPerSecond: Int64)
     func setGlobalUploadLimit(_ bytesPerSecond: Int64)
-    func toggleSpeedLimitsMode()
-    func speedLimitsMode() async -> Bool?
-    func serverStatistics() -> ServerStatistics?
-    func alternativeDownloadLimit() async -> Int64?
-    func alternativeUploadLimit() async -> Int64?
-    func applyPreferences(_ values: [String: Any])
+    func engineStatistics() -> EngineStatistics?
 
-    // RSS (A8; flat feed list, folders ignored)
-    func rssFeeds() async -> [RSSFeed]?
-    func addRSSFeed(url: String, path: String?)
-    func removeRSSItem(path: String)
-    func markRSSRead(path: String, articleId: Int?)
-    func refreshRSSItem(path: String)
+    // Booster support (embedded engine)
+    func torrentExportData(id: String) async throws -> Data
+    func webSeedURLs(id: String) async -> [String]
+    func pieceStates(id: String) async throws -> [Int]
 
-    // Search (A9; server-side plugin search)
-    func searchPlugins() async -> [SearchPlugin]?
-    func installSearchPlugins(sources: [String]) async -> Bool
-    func uninstallSearchPlugins(names: [String]) async -> Bool
-    func setSearchPluginsEnabled(names: [String], enabled: Bool) async -> Bool
-    func updateSearchPlugins() async -> Bool
+    // Search (embedded Jackett/Prowlarr)
     func startSearch(pattern: String, category: String) async -> Int64?
     func stopSearch(id: Int64)
     func deleteSearch(id: Int64)
@@ -130,28 +117,12 @@ extension TorrentEngine {
     func globalUploadLimit() async -> Int64? { nil }
     func setGlobalDownloadLimit(_ bytesPerSecond: Int64) {}
     func setGlobalUploadLimit(_ bytesPerSecond: Int64) {}
-    func toggleSpeedLimitsMode() {}
-    func speedLimitsMode() async -> Bool? { nil }
-    func serverStatistics() -> ServerStatistics? { nil }
-    func alternativeDownloadLimit() async -> Int64? { nil }
-    func alternativeUploadLimit() async -> Int64? { nil }
-    func applyPreferences(_ values: [String: Any]) {}
-
-    // MARK: RSS (flat feed list; folders ignored)
-
-    func rssFeeds() async -> [RSSFeed]? { nil }
-    func addRSSFeed(url: String, path: String?) {}
-    func removeRSSItem(path: String) {}
-    func markRSSRead(path: String, articleId: Int?) {}
-    func refreshRSSItem(path: String) {}
-
-    // MARK: Search (server-side plugin search)
-
-    func searchPlugins() async -> [SearchPlugin]? { nil }
-    func installSearchPlugins(sources: [String]) async -> Bool { false }
-    func uninstallSearchPlugins(names: [String]) async -> Bool { false }
-    func setSearchPluginsEnabled(names: [String], enabled: Bool) async -> Bool { false }
-    func updateSearchPlugins() async -> Bool { false }
+    func engineStatistics() -> EngineStatistics? { nil }
+    func torrentExportData(id: String) async throws -> Data {
+        throw BoostError.metaBad("engine does not export torrent metadata")
+    }
+    func webSeedURLs(id: String) async -> [String] { [] }
+    func pieceStates(id: String) async throws -> [Int] { [] }
     func startSearch(pattern: String, category: String) async -> Int64? { nil }
     func stopSearch(id: Int64) {}
     func deleteSearch(id: Int64) {}

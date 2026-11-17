@@ -2,7 +2,7 @@ import Charts
 import SwiftUI
 
 /// Full-page statistics dashboard: a live transfer-speed graph, Drift's own
-/// lifetime record, and the connected server's transfer statistics — with
+/// lifetime record, and the embedded engine's transfer statistics — with
 /// bar comparisons instead of bare value lists.
 struct StatisticsPaneView: View {
     var model: ListViewModel
@@ -22,7 +22,7 @@ struct StatisticsPaneView: View {
                 speedCard
                 cardsLayout {
                     appStatsCard
-                    serverStatsCard
+                    engineStatsCard
                 }
             }
             .padding(.horizontal, 20)
@@ -72,10 +72,7 @@ struct StatisticsPaneView: View {
     }
 
     private var subtitle: String {
-        if let version = model.connectionState.version {
-            return "Live transfer graph · qBittorrent \(version)"
-        }
-        return model.isConnected ? "Live transfer graph · server" : "Not connected"
+        model.isConnected ? "Live transfer graph · embedded engine" : "Not connected"
     }
 
     // MARK: - Speed graph
@@ -182,7 +179,7 @@ struct StatisticsPaneView: View {
                             ProgressView().controlSize(.small)
                             Text(model.isConnected
                                  ? "Collecting transfer samples…"
-                                 : "Connect to a server to graph live speed.")
+                                 : "Start the embedded engine to graph live speed.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -368,11 +365,11 @@ struct StatisticsPaneView: View {
         }
     }
 
-    // MARK: - Server
+    // MARK: - Engine
 
     @ViewBuilder
-    private var serverStatsCard: some View {
-        statsCard("This server (qBittorrent)", icon: "server.rack") {
+    private var engineStatsCard: some View {
+        statsCard("This engine", icon: "server.rack") {
             if let stats = model.statistics {
                 sessionBar(stats)
                 Divider().opacity(0.5)
@@ -385,18 +382,18 @@ struct StatisticsPaneView: View {
                     valueRow("Global share ratio") {
                         Text(String(format: "%.2f", stats.globalRatio))
                     }
-                    valueRow("Free space on server") {
+                    valueRow("Free space on disk") {
                         Text(DesignSystem.Format.size(max(0, stats.freeSpaceOnDisk)))
                     }
                 }
             } else {
                 ContentUnavailableView(
-                    "No server statistics yet",
+                    "No engine statistics yet",
                     systemImage: "chart.bar.doc.horizontal",
                     description: Text(
                         model.isConnected
-                            ? "Transfer data appears once the server reports activity."
-                            : "Connect to a qBittorrent server to collect transfer statistics.")
+                            ? "Transfer data appears once the engine reports activity."
+                            : "Start the embedded engine to collect transfer statistics.")
                 )
                 .frame(minHeight: 140, alignment: .center)
             }
@@ -404,7 +401,7 @@ struct StatisticsPaneView: View {
     }
 
     /// Stacked session bar: downloaded, uploaded, wasted.
-    private func sessionBar(_ stats: ServerStatistics) -> some View {
+    private func sessionBar(_ stats: EngineStatistics) -> some View {
         let total = stats.received + stats.sent + stats.wasted
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -454,7 +451,7 @@ struct StatisticsPaneView: View {
     }
 
     /// All-time downloaded vs uploaded bars, same style as Drift lifetime.
-    private func allTimeBars(_ stats: ServerStatistics) -> some View {
+    private func allTimeBars(_ stats: EngineStatistics) -> some View {
         let maxTotal = max(stats.receivedAllTime, stats.sentAllTime, 1)
         return VStack(alignment: .leading, spacing: 8) {
             Text("All time")

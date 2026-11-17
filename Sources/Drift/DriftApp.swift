@@ -6,6 +6,7 @@ struct DriftApp: App {
     @State private var model: ListViewModel
 
     init() {
+        Self.cleanupLegacyServerMode()
         let model = ListViewModel()
         _model = State(initialValue: model)
         StatusItemController.shared.install(model: model)
@@ -61,4 +62,25 @@ struct DriftApp: App {
         }
         .windowResizability(.contentSize)
     }
+    /// One-time removal of the deleted qBittorrent-server mode's stored
+    /// credentials and defaults. Embedded search and tunnel secrets stay.
+    private static func cleanupLegacyServerMode() {
+        let defaults = UserDefaults.standard
+        for key in [
+            "connection.baseUrl", "connection.username", "connection.lastVersion",
+            "engine.mode", "rss.sidebarEnabled"
+        ] {
+            defaults.removeObject(forKey: key)
+        }
+        // Delete the old qBittorrent password only once, off the launch path:
+        // a legacy-keychain ACL prompt must never freeze the first window.
+        let cleanupKey = "legacy.qbCredentialCleanupDone"
+        if !defaults.bool(forKey: cleanupKey) {
+            defaults.set(true, forKey: cleanupKey)
+            Task.detached(priority: .utility) {
+                Keychain.deletePassword(account: "password")
+            }
+        }
+    }
+
 }

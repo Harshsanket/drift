@@ -57,7 +57,7 @@ final class EmbeddedStore: @unchecked Sendable {
     private var detailMap: [String: TorrentDetails] = [:]
     private var categoryMap: [String: TorrentCategory] = [:]
     private var tagList: [String] = []
-    private var statsValue: ServerStatistics?
+    private var statsValue: EngineStatistics?
 
     func replaceAll(
         _ raw: [String: Any],
@@ -112,7 +112,7 @@ final class EmbeddedStore: @unchecked Sendable {
         return tagList.sorted()
     }
 
-    func statistics() -> ServerStatistics? {
+    func statistics() -> EngineStatistics? {
         lock.lock()
         defer { lock.unlock() }
         return statsValue
@@ -181,8 +181,8 @@ final class EmbeddedStore: @unchecked Sendable {
         return (value as? Bool) ?? false
     }
 
-    static func statistics(_ json: [String: Any]) -> ServerStatistics {
-        ServerStatistics(
+    static func statistics(_ json: [String: Any]) -> EngineStatistics {
+        EngineStatistics(
             received: int(json["received"]),
             sent: int(json["sent"]),
             wasted: int(json["wasted"]),
@@ -944,6 +944,38 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         store.details(for: id) ?? placeholderDetails(for: id)
     }
 
+    func torrentExportData(id: String) async throws -> Data {
+        let response = try await request(["op": "export_torrent", "id": id])
+        guard let hex = response["data"] as? String, hex.count % 2 == 0 else {
+            throw EmbeddedEngineError.protocolError("engine did not return torrent metadata")
+        }
+        var data = Data()
+        data.reserveCapacity(hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else {
+                throw EmbeddedEngineError.protocolError("invalid torrent metadata encoding")
+            }
+            data.append(byte)
+            index = next
+        }
+        return data
+    }
+
+    func webSeedURLs(id: String) async -> [String] {
+        let details = await fetchDetails(for: id)
+        return details.webSeeds.map(\.url)
+    }
+
+    func pieceStates(id: String) async throws -> [Int] {
+        let response = try await request(["op": "piece_states", "id": id])
+        guard let states = response["states"] as? [Int] else {
+            throw EmbeddedEngineError.protocolError("engine did not return piece states")
+        }
+        return states
+    }
+
     func fetchDetails(for id: String) async -> TorrentDetails {
         guard let connection = currentConnection() else { return loadDetails(for: id) }
         do {
@@ -968,7 +1000,7 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         }
     }
 
-    func serverStatistics() -> ServerStatistics? {
+    func engineStatistics() -> EngineStatistics? {
         store.statistics()
     }
 
@@ -1439,17 +1471,6 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
         searchTasks[id] = nil
         searchLock.unlock()
         writeProbeLog("[search] external finished id=\(id) results=\(results.count)")
-    }
-
-    func applyPreferences(_ values: [String: Any]) {
-        // Only the global speed limits map onto the embedded session in E3;
-        // alternative limits are a qBittorrent scheduling feature.
-        if let download = values["dl_limit"] as? Int {
-            setGlobalDownloadLimit(Int64(download) * 1024)
-        }
-        if let upload = values["up_limit"] as? Int {
-            setGlobalUploadLimit(Int64(upload) * 1024)
-        }
     }
 
     // MARK: Placeholders

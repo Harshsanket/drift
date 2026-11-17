@@ -12,134 +12,14 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $model.statusFilter) {
-            Section {
-                searchRow(selected: model.showSearchPane) {
-                    model.toggleSearchPane(!model.showSearchPane)
-                }
-                .padding(.vertical, 3)
-            }
-
-            Section("Status") {
-                ForEach(StatusFilter.sidebarCases) { filter in
-                    Label {
-                        HStack {
-                            Text(filter.label)
-                            Spacer()
-                            Text("\(model.count(for: filter))")
-                                .foregroundStyle(.tertiary)
-                                .monospacedDigit()
-                        }
-                    } icon: {
-                        Image(systemName: filter.systemImage)
-                            .foregroundStyle(filter.tint)
-                    }
-                    .tag(filter)
-                }
-            }
-
-            if model.showCategories {
-                Section("Categories") {
-                    if model.categories.isEmpty {
-                        Text("No categories")
-                            .foregroundStyle(.tertiary)
-                    }
-                    ForEach(model.categories) { category in
-                        organizerRow(
-                            selected: model.activeCategory == .named(category.name),
-                            label: category.name
-                        ) {
-                            model.toggleCategoryFilter(.named(category.name))
-                        } menu: {
-                            Button {
-                                model.pendingText2 = category.savePath
-                                model.activeDialog = .editCategory(name: category.name)
-                            } label: {
-                                Label("Edit…", systemImage: "pencil")
-                            }
-                            .disabled(!model.isConnected)
-                            Button(role: .destructive) {
-                                model.removeOrganizers(categoriesNames: [category.name])
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            .disabled(!model.isConnected)
-                        }
-                    }
-                    organizerRow(
-                        selected: model.activeCategory == .uncategorized,
-                        label: "Uncategorized"
-                    ) {
-                        model.toggleCategoryFilter(.uncategorized)
-                    } menu: {}
-                }
-            }
-
-            if model.showTags {
-                Section("Tags") {
-                    if model.tags.isEmpty {
-                        Text("No tags")
-                            .foregroundStyle(.tertiary)
-                    }
-                    ForEach(model.tags, id: \.self) { tag in
-                        organizerRow(
-                            selected: model.activeTags.contains(tag),
-                            label: tag
-                        ) {
-                            model.toggleTagFilter(tag)
-                        } menu: {
-                            Button(role: .destructive) {
-                                model.removeOrganizers(tagNames: [tag])
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            .disabled(!model.isConnected)
-                        }
-                    }
-                }
-            }
-            if AppSettings.shared.rssEnabled || AppSettings.shared.statsEnabled {
-                Section("Tools") {
-                    if AppSettings.shared.rssEnabled {
-                        paneRow(
-                            "Feeds",
-                            systemImage: "dot.radiowaves.up.forward",
-                            selected: model.showRSSPane,
-                            help: "RSS feeds from the server"
-                        ) {
-                            model.toggleRSSPane(!model.showRSSPane)
-                        }
-                    }
-                    if AppSettings.shared.statsEnabled {
-                        paneRow(
-                            "Statistics",
-                            systemImage: "chart.bar.doc.horizontal",
-                            selected: model.showStatsPane,
-                            help: "Transfer statistics"
-                        ) {
-                            model.toggleStatsPane(!model.showStatsPane)
-                        }
-                    }
-                }
-            }
-
-            // Installed search plugins are indexer connectors the server
-            // runs. One row each, so they are inspectable (categories,
-            // version, site) and manageable from here.
-            if !model.searchPlugins.isEmpty {
-                Section("Plugins") {
-                    ForEach(model.searchPlugins) { plugin in
-                        searchPluginRow(plugin)
-                    }
-                }
-            }
+            searchSection
+            statusSection
+            if model.showCategories { categoriesSection }
+            if model.showTags { tagsSection }
+            if AppSettings.shared.statsEnabled { toolsSection }
         }
         .listStyle(.sidebar)
         .focusable(false)
-        .onChange(of: AppSettings.shared.rssEnabled) { _, enabled in
-            if !enabled, model.showRSSPane {
-                model.toggleRSSPane(false)
-            }
-        }
         .onChange(of: AppSettings.shared.statsEnabled) { _, enabled in
             if !enabled, model.showStatsPane {
                 model.toggleStatsPane(false)
@@ -168,6 +48,114 @@ struct SidebarView: View {
         }
     }
 
+    @ViewBuilder
+    private var searchSection: some View {
+        Section {
+            searchRow(selected: model.showSearchPane) {
+                model.toggleSearchPane(!model.showSearchPane)
+            }
+            .padding(.vertical, 3)
+        }
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        Section("Status") {
+            ForEach(StatusFilter.sidebarCases) { filter in
+                Label {
+                    HStack {
+                        Text(filter.label)
+                        Spacer()
+                        Text("\(model.count(for: filter))")
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                } icon: {
+                    Image(systemName: filter.systemImage)
+                        .foregroundStyle(filter.tint)
+                }
+                .tag(filter)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categoriesSection: some View {
+        Section("Categories") {
+            if model.categories.isEmpty {
+                Text("No categories")
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(model.categories) { category in
+                organizerRow(
+                    selected: model.activeCategory == .named(category.name),
+                    label: category.name
+                ) {
+                    model.toggleCategoryFilter(.named(category.name))
+                } menu: {
+                    Button {
+                        model.pendingText2 = category.savePath
+                        model.activeDialog = .editCategory(name: category.name)
+                    } label: {
+                        Label("Edit…", systemImage: "pencil")
+                    }
+                    .disabled(!model.isConnected)
+                    Button(role: .destructive) {
+                        model.removeOrganizers(categoriesNames: [category.name])
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(!model.isConnected)
+                }
+            }
+            organizerRow(
+                selected: model.activeCategory == .uncategorized,
+                label: "Uncategorized"
+            ) {
+                model.toggleCategoryFilter(.uncategorized)
+            } menu: { EmptyView() }
+        }
+    }
+
+    @ViewBuilder
+    private var tagsSection: some View {
+        Section("Tags") {
+            if model.tags.isEmpty {
+                Text("No tags")
+                    .foregroundStyle(.tertiary)
+            }
+            ForEach(model.tags, id: \.self) { tag in
+                organizerRow(
+                    selected: model.activeTags.contains(tag),
+                    label: tag
+                ) {
+                    model.toggleTagFilter(tag)
+                } menu: {
+                    Button(role: .destructive) {
+                        model.removeOrganizers(tagNames: [tag])
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .disabled(!model.isConnected)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var toolsSection: some View {
+        Section("Tools") {
+            paneRow(
+                "Statistics",
+                systemImage: "chart.bar.doc.horizontal",
+                selected: model.showStatsPane,
+                help: "Transfer statistics"
+            ) {
+                model.toggleStatsPane(!model.showStatsPane)
+            }
+        }
+    }
+
     /// The search entry is styled as a persistent, padded control rather than
     /// a bare row: unselected sidebars still show a resting background, so it
     /// reads as a search entry instead of a stray section title.
@@ -176,7 +164,7 @@ struct SidebarView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-            Text("Server Search")
+            Text("Search")
                 .foregroundStyle(selected ? Color.primary : Color.secondary)
             Spacer()
             if model.searchRunning {
@@ -198,7 +186,7 @@ struct SidebarView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
-        .help("Search every enabled plugin on the connected server")
+        .help("Search Jackett or Prowlarr")
     }
 
     private func paneRow(
@@ -230,56 +218,6 @@ struct SidebarView: View {
         .help(help)
     }
 
-    private func searchPluginRow(_ plugin: SearchPlugin) -> some View {
-        Label {
-            HStack(spacing: 6) {
-                Text(plugin.fullName)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer()
-                if !plugin.enabled {
-                    Text("off")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        } icon: {
-            Image(systemName: "globe")
-                .foregroundStyle(plugin.enabled ? Color.accentColor : Color.secondary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background {
-            if model.selectedSearchPluginName == plugin.name {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.accentColor.opacity(0.28))
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            model.selectSearchPlugin(plugin)
-        }
-        .contextMenu {
-            Button(plugin.enabled ? "Disable" : "Enable") {
-                model.setSearchPluginEnabled(plugin, enabled: !plugin.enabled)
-            }
-            Button("Check for Updates") {
-                model.updateSearchPlugins()
-            }
-            Divider()
-            Button("Refresh List") {
-                model.loadSearchPlugins()
-            }
-            Button(role: .destructive) {
-                model.uninstallSearchPlugin(plugin)
-            } label: {
-                Text("Uninstall \(plugin.fullName)")
-            }
-        }
-        .help(plugin.categories.isEmpty
-              ? "Search plugin \(plugin.fullName)"
-              : "\(plugin.fullName) · \(plugin.categories.joined(separator: ", "))")
-    }
 
     private func organizerRow(
         selected: Bool,

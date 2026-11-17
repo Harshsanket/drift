@@ -1,15 +1,6 @@
 import SwiftUI
 import AppKit
 
-/// The verification password override is honored only for `--test-*` runs so a
-/// stray environment value cannot replace the user's saved Keychain password
-/// during a normal launch.
-private func testPasswordOverride() -> String? {
-    let arguments = ProcessInfo.processInfo.arguments
-    guard arguments.contains(where: { $0.hasPrefix("--test-") }) else { return nil }
-    return ProcessInfo.processInfo.environment["DRIFT_TEST_PASSWORD"]
-}
-
 struct ContentView: View {
     @Bindable var model: ListViewModel
     @Environment(\.openWindow) private var openWindow
@@ -59,17 +50,7 @@ struct ContentView: View {
                     // Fixed width (min = max): the split divider is not draggable.
                     .navigationSplitViewColumnWidth(210)
             } detail: {
-                if let plugin = model.selectedSearchPlugin {
-                    SearchPluginPaneView(model: model, plugin: plugin)
-                        .safeAreaInset(edge: .top, spacing: 0) {
-                            Color.clear
-                                .frame(height: headerOverflow)
-                                .allowsHitTesting(false)
-                        }
-                        .background(DetailInsetProbe { detailTopInset = $0 })
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .overlay(alignment: .bottom) { footer }
-                } else if model.showSearchPane {
+                if model.showSearchPane {
                     SearchPaneView(model: model)
                         .safeAreaInset(edge: .top, spacing: 0) {
                             Color.clear
@@ -81,16 +62,6 @@ struct ContentView: View {
                         .overlay(alignment: .bottom) { footer }
                 } else if model.showStatsPane {
                     StatisticsPaneView(model: model)
-                        .safeAreaInset(edge: .top, spacing: 0) {
-                            Color.clear
-                                .frame(height: headerOverflow)
-                                .allowsHitTesting(false)
-                        }
-                        .background(DetailInsetProbe { detailTopInset = $0 })
-                        .background(Color(nsColor: .windowBackgroundColor))
-                        .overlay(alignment: .bottom) { footer }
-                } else if model.showRSSPane {
-                    RSSPaneView(model: model)
                         .safeAreaInset(edge: .top, spacing: 0) {
                             Color.clear
                                 .frame(height: headerOverflow)
@@ -133,9 +104,6 @@ struct ContentView: View {
         .sheet(isPresented: $model.showAddSheet) {
             AddTorrentSheet(model: model)
         }
-        .sheet(isPresented: $model.showConnectionSheet) {
-            ConnectionSheet()
-        }
         .sheet(isPresented: $model.showUpdateSheet) {
             UpdatePromptSheet()
         }
@@ -161,6 +129,7 @@ struct ContentView: View {
             writeProbeLog("[nav] content appear")
             CompletionMonitor.shared.requestPermission()
             WindowOpener.openMain = { openWindow(id: "main") }
+            WindowOpener.openSettings = { openWindow(id: "settings") }
             // Verification-only: --show-settings opens the settings window.
             if ProcessInfo.processInfo.arguments.contains("--show-settings") {
                 openWindow(id: "settings")
@@ -216,7 +185,7 @@ struct ContentView: View {
             }
             // Verification-only: --test-peers selects the first torrent,
             // opens the Peers tab, then round-trips a harmless TEST-NET ban
-            // through the server's banned_IPs preference and unbans it.
+            // through the engine's persistent ban list and unbans it.
             if ProcessInfo.processInfo.arguments.contains("--test-peers"),
                !model.didRunPeersHook {
                 writeProbeLog("[peers] hook v3 entered")
@@ -267,8 +236,8 @@ struct ContentView: View {
                     )
                     model.banPeers([probeRow])
                     try? await Task.sleep(for: .seconds(2))
-                    let bans = await model.serverBannedIPs()
-                    writeProbeLog("[peers] hook serverBans=\(bans.joined(separator: ","))")
+                    let bans = await model.engineBannedIPs()
+                    writeProbeLog("[peers] hook engineBans=\(bans.joined(separator: ","))")
                     try? await Task.sleep(for: .seconds(1))
                     await model.removeBannedIPs(["192.0.2.7"])
                 }
@@ -442,38 +411,13 @@ struct ContentView: View {
                     writeProbeLog("[details] sequence done")
                 }
             }
-            // Verification-only: --test-lifecycle drives the tier + sleep/wake
-            // handlers against the real backend (log-verifiable sequence).
-            if ProcessInfo.processInfo.arguments.contains("--test-lifecycle") {
-                Task { @MainActor in
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
-                    guard model.isConnected else {
-                        writeProbeLog("[lifecycle] skipped (connect failed)")
-                        return
-                    }
-                    AppSettings.shared.showMenuBarItem = true
-                    model.setWindowVisible(false)
-                    try? await Task.sleep(for: .seconds(8))
-                    model.handleSystemSleep()
-                    try? await Task.sleep(for: .seconds(1))
-                    model.handleSystemWake()
-                    try? await Task.sleep(for: .seconds(4))
-                    model.setWindowVisible(true)
-                    try? await Task.sleep(for: .seconds(2))
-                    writeProbeLog("[lifecycle] sequence done")
-                }
-            }
             // Verification-only: --test-menu drives the menu bar slice —
             // snapshot, pause/resume all, summary tier, item-off suspension,
             // re-enable resume (log-countable sequence).
             if ProcessInfo.processInfo.arguments.contains("--test-menu") {
                 Task { @MainActor in
                     writeProbeLog("[menubar] hook start")
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
+                    await model.connectEngine()
                     guard model.isConnected else {
                         writeProbeLog("[menubar] skipped (connect failed)")
                         return
@@ -575,9 +519,7 @@ struct ContentView: View {
                 let mode = ProcessInfo.processInfo.arguments[idx + 1]
                 Task { @MainActor in
                     writeProbeLog("[bench] mode=\(mode) start")
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
+                    await model.connectEngine()
                     guard model.isConnected else {
                         writeProbeLog("[bench] skipped (connect failed)")
                         return
@@ -605,85 +547,12 @@ struct ContentView: View {
                     writeProbeLog("[bench] mode=\(mode) ready")
                 }
             }
-            // Verification-only: --show-connection-sheet opens the connection
-            // sheet; --test-connection pings the stored endpoint (or
-            // DRIFT_TEST_PASSWORD override) so the result is log-verifiable.
-            if ProcessInfo.processInfo.arguments.contains("--show-connection-sheet") {
-                model.showConnectionSheet = true
-            }
-            if ProcessInfo.processInfo.arguments.contains("--test-connection") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    let settings = ConnectionSettings.shared
-                    let envPassword = testPasswordOverride()
-                    let keychainPassword = Keychain.password(account: "password")
-                    let source = envPassword != nil
-                        ? "env(\(envPassword!.count))"
-                        : keychainPassword.map { "keychain(\($0.count))" } ?? "none"
-                    writeProbeLog("[conn] test password source=\(source)")
-                    let password = envPassword ?? keychainPassword ?? ""
-                    Task {
-                        await settings.test(
-                            baseUrl: settings.baseUrl,
-                            username: settings.username,
-                            password: password
-                        )
-                    }
-                }
-            }
-            // Verification-only: --test-rss loads the server's feeds, marks
-            // one read, adds one, removes it, reloads (log-verifiable).
-            if ProcessInfo.processInfo.arguments.contains("--test-rss") {
-                Task { @MainActor in
-                    writeProbeLog("[rss] hook start")
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
-                    for _ in 0..<80 {
-                        if model.isConnected { break }
-                        try? await Task.sleep(for: .milliseconds(250))
-                    }
-                    model.toggleRSSPane(true)
-                    for _ in 0..<20 {
-                        if model.rssContentLoaded { break }
-                        try? await Task.sleep(for: .milliseconds(250))
-                    }
-                    writeProbeLog(
-                        "[rss] feeds=\(model.rssFeeds.map { "\($0.name):\(model.selectedRSSFeed?.articles.count ?? 0)" })"
-                    )
-                    if let feed = model.rssFeeds.first {
-                        model.selectRSSFeed(feed)
-                        let first = feed.articles.first
-                        if let article = first {
-                            model.markRSSArticleRead(article, in: feed)
-                            writeProbeLog("[rss] marked read id=\(article.id)")
-                        }
-                        model.addRSSFeed(url: "https://verify.example/example.xml")
-                        try? await Task.sleep(for: .seconds(2))
-                        writeProbeLog(
-                            "[rss] after add n=\(model.rssFeeds.count) "
-                                + model.rssFeeds.map(\.name).joined(separator: ",")
-                        )
-                        // Snapshot after reload, then restore the research state.
-                        if let added = model.rssFeeds.first(where: { $0.url.contains("verify.example") }) {
-                            model.removeRSSFeed(added)
-                            try? await Task.sleep(for: .seconds(2))
-                            writeProbeLog(
-                                "[rss] after remove n=\(model.rssFeeds.count)"
-                            )
-                        }
-                        model.toggleRSSPane(false)
-                    }
-                    writeProbeLog("[rss] sequence done")
-                }
-            }
             // Verification-only: --test-search starts a plugin search, polls,
             // snapshots the results, downloads one into the add sheet, stops.
             if ProcessInfo.processInfo.arguments.contains("--test-search") {
                 Task { @MainActor in
                     writeProbeLog("[search] hook start")
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
+                    await model.connectEngine()
                     for _ in 0..<80 {
                         if model.isConnected { break }
                         try? await Task.sleep(for: .milliseconds(250))
@@ -705,31 +574,6 @@ struct ContentView: View {
                     }
                     model.clearSearchResults()
                     writeProbeLog("[search] sequence done")
-                }
-            }
-            // Verification-only: --test-sync forces a real backend connection
-            // (bypasses the prior-success opt-in) using DRIFT_TEST_PASSWORD.
-            if ProcessInfo.processInfo.arguments.contains("--test-sync") {
-                writeProbeLog(
-                    "[sync] test-sync block override="
-                        + (testPasswordOverride() != nil ? "yes" : "no")
-                )
-                Task {
-                    await model.connectRealBackend(
-                        passwordOverride: testPasswordOverride()
-                    )
-                    var last = ""
-                    for _ in 0..<20 {
-                        try? await Task.sleep(for: .seconds(1.5))
-                        let row = model.filtered.first
-                        let snap = row.map {
-                            "\($0.name)|s=\($0.status.rawValue)|p=\($0.progress)|d=\($0.downloadSpeed)"
-                        } ?? "empty(\(model.filtered.count))"
-                        if snap != last {
-                            last = snap
-                            writeProbeLog("[sync] sample \(snap)")
-                        }
-                    }
                 }
             }
         }

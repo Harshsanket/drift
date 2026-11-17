@@ -3,58 +3,6 @@ import Foundation
 import Testing
 @testable import Drift
 
-@Suite("Security: remote value scrub (untrusted server JSON)")
-struct RemoteSanitizerTests {
-    @Test func controlCharactersAndLengthCapped() {
-        let dirty = "le\u{07}gacy\u{1F}na\u{7F}me" + String(repeating: "x", count: 400)
-        let clean = WebAPIEngine.RemoteSanitizer.text(dirty)
-        #expect(!clean.contains("\u{07}"))
-        #expect(!clean.contains("\u{1F}"))
-        #expect(!clean.contains("\u{7F}"))
-        #expect(clean.count == WebAPIEngine.RemoteSanitizer.maxDisplayLength)
-    }
-
-    @Test func pathsKeepMoreRoom() {
-        let dirty = String(repeating: "a\u{00}b", count: 100)
-        let clean = WebAPIEngine.RemoteSanitizer.path(dirty)
-        #expect(!clean.isEmpty)
-        #expect(clean.count <= WebAPIEngine.RemoteSanitizer.maxPathLength)
-    }
-
-    @Test func numbersAreClampedUnderZeroAndInfinityAttacks() {
-        #expect(WebAPIEngine.RemoteSanitizer.int(-5 as NSNumber, inRange: 0...(1 << 62)) == 0)
-        #expect(WebAPIEngine.RemoteSanitizer.int(Int64.max as NSNumber, inRange: 0...(1 << 62)) == (1 << 62))
-        #expect(WebAPIEngine.RemoteSanitizer.int("NaN" as NSString, inRange: 0...(1 << 62)) == 0)
-        #expect(WebAPIEngine.RemoteSanitizer.int(NSNumber(value: Double.nan), inRange: 0...(1 << 62)) == 0)
-        #expect(WebAPIEngine.RemoteSanitizer.double(NSNumber(value: Double.infinity), inRange: 0...1) == 1)
-        #expect(WebAPIEngine.RemoteSanitizer.double(NSNumber(value: -Double.infinity), inRange: 0...1) == 0)
-        #expect(WebAPIEngine.RemoteSanitizer.double(1.7 as NSNumber, inRange: 0...1) == 1)
-        #expect(WebAPIEngine.RemoteSanitizer.double(-0.2 as NSNumber, inRange: 0...1) == 0)
-    }
-
-    @Test func summarySanitizesHostilePayload() {
-        let fields: [String: Any] = [
-            "name": "evil\u{1B}name\u{08}" + String(repeating: "9", count: 500),
-            "progress": 1.9 as NSNumber,
-            "dlspeed": -(1 << 30) as NSNumber,
-            "upspeed": (1 << 40) as NSNumber,
-            "size": NSNumber(value: Double.greatestFiniteMagnitude),
-            "downloaded": -1 as NSNumber,
-            "save_path": "/hostile\u{0}/path/…"
-        ]
-        let summary = WebAPIEngine.summary(id: "aabb", fields: fields)
-        #expect(summary.progress == 1)
-        #expect(summary.downloadSpeed == 0)
-        #expect(summary.uploadSpeed == (1 << 40))
-        #expect(summary.size == (1 << 62))
-        #expect(summary.downloaded == 0)
-        #expect(!summary.name.contains("\u{1B}"))
-        #expect(summary.name.count <= WebAPIEngine.RemoteSanitizer.maxDisplayLength)
-        #expect(summary.savePath.contains("\u{0}") == false)
-        #expect(summary.savePath.count <= WebAPIEngine.RemoteSanitizer.maxPathLength)
-    }
-}
-
 @Suite("Security: UI least-privilege boundary")
 struct UIBoundaryTests {
     /// Absolute path of the package source root, resolved from this test
@@ -279,22 +227,6 @@ struct FuzzTests {
         }
     }
 
-    @Test func urlParserSurvivesHostileStrings() {
-        let rng = Rng(seed: 0x5EED)
-        let pieces = ["http", "https", "://", "127.0.0.1", "8765", "/", "..", "%00",
-                      "//", " ", "\u{7f}", "\u{07}", "javascript:", "data:", "file:",
-                      "[::1]", "user:pass@", "@", "#", "?", " ", "..%2f", "0x00"]
-        for _ in 0..<600 {
-            let count = Int(rng.next() % 12) + 1
-            let joined = (0..<count).map { _ in pieces[Int(rng.next() % UInt64(pieces.count))] }
-                .joined()
-            // Never trap; nil is an acceptable outcome.
-            if let url = WebAPIEngine.url(from: joined) {
-                // If accepted, only http(s) may ever survive.
-                #expect(url.scheme == "http" || url.scheme == "https")
-            }
-        }
-    }
 }
 
 @Suite("Security: control-channel peer checks")
@@ -537,3 +469,29 @@ struct FileGatewayTests {
     }
 }
 
+
+@Suite("Security: embedded-only boundary")
+struct EmbeddedOnlyBoundaryTests {
+    @Test func externalEngineSurfaceIsGone() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Drift")
+        let enumerator = try #require(
+            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        )
+        let forbidden = [
+            "WebAPIEngine", "ConnectionSettings", "EngineMode",
+            "SearchPlugin", "RSSFeed", "RSSArticle"
+        ]
+        var violations: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for token in forbidden where text.contains(token) {
+                violations.append("\(url.lastPathComponent): \(token)")
+            }
+        }
+        #expect(violations.isEmpty, "external-engine leftovers: \(violations.joined(separator: "; "))")
+    }
+}

@@ -242,6 +242,13 @@ final class EmbeddedEngineTests: XCTestCase {
         XCTAssertTrue(details.trackers.contains { $0.url.contains("127.0.0.1:1/announce") })
         XCTAssertTrue(details.webSeeds.contains { $0.url.contains("127.0.0.1:1/file") })
 
+        let exported = try await embedded.torrentExportData(id: hash)
+        let meta = try TorrentMeta.decode(exported)
+        XCTAssertEqual(meta.pieceCount, 1)
+        XCTAssertEqual(meta.totalLength, 1024)
+        let states = try await embedded.pieceStates(id: hash)
+        XCTAssertEqual(states.count, 1)
+
         embedded.setFilePriority(id: hash, fileIndex: 0, priority: .maximum)
         let priorityApplied = try await waitUntil(timeout: 10) {
             await embedded.fetchDetails(for: hash).files.first?.priority == .maximum

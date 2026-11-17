@@ -197,6 +197,7 @@ struct AddTorrentSheet: View {
                             Text(layout.label).tag(layout)
                         }
                     }
+                    .labelsHidden()
                     .fixedSize()
                     Spacer()
                 }

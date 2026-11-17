@@ -102,13 +102,13 @@ struct HeaderTrailingControls: View {
         let fit = HeaderFit(width: availableWidth)
         HStack(spacing: DesignSystem.Metrics.controlGap) {
             // Add Torrent — disabled until a connection exists: adds go to
-            // qBittorrent, so there is nothing to add to while disconnected.
+            // engine, so there is nothing to add to while disconnected.
             CapsuleIconButton(
                 systemImage: "plus",
                 title: "Add Torrent",
                 help: model.isConnected
                     ? "Add torrent"
-                    : "Connect to qBittorrent first",
+                    : "Start the engine first",
                 action: { model.showAddSheet = true }
             )
             .keyboardShortcut("o", modifiers: .command)
@@ -405,17 +405,6 @@ private struct MoreOptionsMenu: View {
 
             Divider()
 
-            Toggle(
-                "Alternative Speed Limits",
-                isOn: Binding(
-                    get: { model.altSpeedsActive },
-                    set: { _ in model.toggleAltSpeeds() }
-                )
-            )
-            .disabled(!model.isConnected)
-
-            Divider()
-
             Button {
                 openWindow(id: "settings")
             } label: {
@@ -423,12 +412,6 @@ private struct MoreOptionsMenu: View {
             }
             .help("Settings")
 
-            Button {
-                model.showConnectionSheet = true
-            } label: {
-                Label("Connection…", systemImage: "network")
-            }
-            .help("Connection settings")
         } label: {
             Image(systemName: "ellipsis")
         }

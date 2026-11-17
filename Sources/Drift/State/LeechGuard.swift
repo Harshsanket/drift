@@ -2,9 +2,8 @@ import Foundation
 import Observation
 
 /// qBEE-inspired anti-leech rules. Decides which peers look leechy;
-/// enforcement goes through the server's banned_IPs preference (stock qB
-/// has no per-peer ban endpoint). Shadow mode logs decisions without
-/// banning.
+/// enforcement goes through the embedded engine's persistent ban list.
+/// Shadow mode logs decisions without banning.
 @MainActor
 @Observable
 final class LeechGuard {
@@ -73,7 +72,7 @@ final class LeechGuard {
     /// Where bans get executed; wired to the connected engine by the app
     /// root so the guard stays engine-agnostic.
     var performBan: (([String]) async -> Void)?
-    var serverBans: (() async -> [String])?
+    var engineBans: (() async -> [String])?
     var performUnban: (([String]) async -> Void)?
 
     /// Peer id -> first tick we saw it (drives the idle-leech timer).
@@ -257,5 +256,35 @@ final class LeechGuard {
     private static func persist(_ config: Config) {
         guard let data = try? JSONEncoder().encode(config) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
+    }
+}
+
+/// Pure shaping/merging of the engine's persistent banned-IP preference.
+enum BannedIPPreferences {
+    static func trimmedIP(_ ip: String) -> String {
+        ip.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func split(_ raw: String) -> [String] {
+        raw.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { trimmedIP(String($0)) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Union preserving existing order first, then new entries; deduped.
+    static func merge(existing: [String], new: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for ip in existing + new {
+            let trimmed = trimmedIP(ip)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            out.append(trimmed)
+        }
+        return out
+    }
+
+    static func remove(existing: [String], remove: [String]) -> [String] {
+        let cut = Set(remove.map(trimmedIP).filter { !$0.isEmpty })
+        return existing.map(trimmedIP).filter { !$0.isEmpty && !cut.contains($0) }
     }
 }

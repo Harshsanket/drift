@@ -25,7 +25,7 @@ struct StatusbarView: View {
                         Text(DesignSystem.Format.size(stats.freeSpaceOnDisk) + " free")
                             .foregroundStyle(.tertiary)
                             .monospacedDigit()
-                            .help("Free space on the server")
+                            .help("Free space on disk")
                     }
                 }
                 // Transient activity (checking/moving) rides the status bar as
@@ -37,11 +37,6 @@ struct StatusbarView: View {
             Spacer(minLength: DesignSystem.Spacing.md)
 
             HStack(spacing: DesignSystem.Spacing.lg) {
-                if model.altSpeedsActive {
-                    Image(systemName: "gauge.with.needle")
-                        .foregroundStyle(DesignSystem.Palette.stalled)
-                        .help("Alternative speed limits are active")
-                }
                 speed(
                     systemImage: "arrow.down",
                     value: model.globalDownloadSpeed,
@@ -117,7 +112,7 @@ struct StatusbarView: View {
             }
             .foregroundStyle(status.tint)
             .frame(maxWidth: 320, alignment: .leading)
-            .help("\(count) torrent\(count == 1 ? "" : "s") \(status.label.lowercased()) on the server right now")
+            .help("\(count) torrent\(count == 1 ? "" : "s") \(status.label.lowercased()) in the engine right now")
         }
     }
 

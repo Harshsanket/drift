@@ -69,8 +69,8 @@ struct TorrentListView: View {
                         } description: {
                             Text(model.connectionState.label)
                         } actions: {
-                            Button("Connection Settings…") {
-                                model.showConnectionSheet = true
+                            Button("Open Settings…") {
+                                WindowOpener.openSettings?()
                             }
                         }
                     }
