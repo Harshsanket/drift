@@ -32,7 +32,7 @@ final class UpdateChecker {
 
     var appVersion: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
-            ?? "2.1.0"
+            ?? "2.2.0"
     }
 
     private static let latestReleaseURL =

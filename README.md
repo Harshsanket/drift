@@ -6,7 +6,7 @@
 </p>
 
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange)
-![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-blue)
+![Version 2.2.0](https://img.shields.io/badge/version-2.2.0-blue)
 
 ## Screenshots
 
@@ -24,7 +24,7 @@ SwiftUI and Apple's native frameworks. It ships its own out-of-process
 setup — no Docker and no separate qBittorrent install. The bundled engine is
 the only backend; there is no server connection to configure.
 
-**Status: beta (v2.1.0).** It is in active development; expect rough edges
+**Status: beta (v2.2.0).** It is in active development; expect rough edges
 and please report anything odd via [Issues](https://github.com/Harshsanket/drift/issues).
 
 ## Features
@@ -61,11 +61,12 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
   Runs in three modes — Off, Shadow (log only) and Auto-ban — with a
   client/IP whitelist and a log of recent decisions; bans are persisted by
   the embedded engine.
-- **Connection Booster** — accelerates downloading torrents that expose
-  HTTP web seeds: Drift pauses the torrent, fetches missing pieces over
-  parallel ranged HTTP, verifies each piece against the torrent's SHA-1,
-  writes the files and resumes the torrent. Boost tasks and direct downloads
-  live in the Downloads window.
+- **Connection Booster** — available for every incomplete torrent: Drift
+  pauses the torrent, fetches missing pieces over parallel ranged HTTP,
+  verifies each piece against the torrent's SHA-1, writes the files and
+  resumes the torrent. A torrent's own HTTP web seeds are used automatically;
+  without one, Drift asks for a direct HTTP(S) mirror of the files. Boost
+  tasks and direct downloads live in the Downloads window.
 - **Search** — queries **Jackett or Prowlarr** natively (base URL +
   Keychain API key) and feeds results straight into the built-in engine.
 - **Statistics pane**, **dock badge** for active downloads, and
@@ -90,8 +91,9 @@ and please report anything odd via [Issues](https://github.com/Harshsanket/drift
   The engine is arm64-only and statically linked.
 - **LeechGuard** runs peer reviews against every detail refresh and applies
   ban decisions to the embedded engine; **Booster** (`DownloadCenter`) plans
-  and races parallel ranged piece fetches for torrents with HTTP web
-  seeds, with persisted progress for direct downloads.
+  and races parallel ranged piece fetches for any incomplete torrent, from
+  its web seeds or a user-supplied HTTP(S) mirror, with persisted progress
+  for direct downloads.
 - **TunnelService** drives `drift-tunnel-helper`, a root daemon that owns
   the utun and exposes a loopback-only HTTP relay; Partout handles WireGuard.
 - The WireGuard profile and search API key are stored in the **macOS
@@ -128,7 +130,7 @@ Foundation, SwiftUI, AppKit, URLSession and the two packages above.
 
 ### 1. Grab a release build (embedded mode)
 
-`Drift-2.1.0-arm64.dmg` — or the matching `Drift-2.1.0-arm64.zip` — from
+`Drift-2.2.0-arm64.dmg` — or the matching `Drift-2.2.0-arm64.zip` — from
 the [Releases](https://github.com/Harshsanket/drift/releases) page. Open
 the DMG and drag Drift to Applications (or unzip and move `Drift.app`).
 
@@ -155,8 +157,8 @@ Release DMG + ZIP (ad-hoc, EULA/background, Sparkle appcast):
 
 ```sh
 ./Scripts/package-dmg.sh
-# → dist/Drift-2.1.0-arm64.dmg
-# → dist/Drift-2.1.0-arm64.zip
+# → dist/Drift-2.2.0-arm64.dmg
+# → dist/Drift-2.2.0-arm64.zip
 # → dist/appcast.xml + release notes + SHA-256 files
 ```
 

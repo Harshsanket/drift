@@ -14,8 +14,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-2.1.0}"
-BUILD="${BUILD:-210}"
+VERSION="${VERSION:-2.2.0}"
+BUILD="${BUILD:-220}"
 TAG="${TAG:-v$VERSION}"
 SKIP_BUILD=0
 [[ "${1:-}" == "--skip-build" ]] && SKIP_BUILD=1
