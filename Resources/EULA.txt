@@ -1,13 +1,22 @@
-Drift — End User License Agreement
-Version 2.1.0
+Drift — License Notice
 
-Copyright © 2026 Harsh Sanket. All rights reserved.
+Copyright © 2026 Harsh Sanket.
 
-Drift is provided "as is", without warranty of any kind, express or implied,
-including but not limited to the warranties of merchantability, fitness for a
-particular purpose and noninfringement. In no event shall the author be liable
-for any claim, damages or other liability arising from, out of or in
-connection with Drift or the use of Drift.
+Drift is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, version 3 only (GPL-3.0-only).
+
+Drift is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+details, including its NO WARRANTY section.
+
+You should have received a copy of the GNU General Public License along
+with Drift. If not, see <https://www.gnu.org/licenses/gpl-3.0.txt> or the
+LICENSE file in the source repository.
+
+Complete corresponding source code:
+https://github.com/Harshsanket/drift (use the tag for this release)
 
 You are responsible for the content you download and for complying with the
 laws and service terms that apply to you. Drift does not provide, host, or
@@ -23,7 +32,6 @@ Drift's embedded engine includes:
 The app bundle also uses:
   - Sparkle — MIT License
   - Partout — GPL-3.0 (tunnel helper; see its own license in the bundle)
-  - qBittorrent — GPL-2.0+ (server mode only; not bundled)
 
 Full license texts for the embedded engine ship in
 Drift.app/Contents/Resources/ThirdPartyLicenses/.

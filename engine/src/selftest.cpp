@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 // E1 acceptance harness: create a torrent, seed it in a private session, add
 // it to the engine as a magnet, download it over loopback, then restart the
 // engine and verify the resume data restored the transfer.

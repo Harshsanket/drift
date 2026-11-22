@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 enum SidebarWidthPreference: PreferenceKey {
@@ -75,6 +76,9 @@ struct SidebarView: View {
                         .foregroundStyle(filter.tint)
                 }
                 .tag(filter)
+                .simultaneousGesture(TapGesture().onEnded {
+                    model.dismissSidebarPanes()
+                })
             }
         }
     }

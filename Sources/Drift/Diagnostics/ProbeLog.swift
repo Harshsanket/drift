@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
 /// Verification-only diagnostics sink. Disabled unless the process is started

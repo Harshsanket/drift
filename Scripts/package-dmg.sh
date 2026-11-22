@@ -214,16 +214,24 @@ PUBDATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 cat > "dist/release-notes-$VERSION.md" <<EOF
 # Drift $VERSION
 
-Maintenance release on the built-in embedded-engine line.
+2.2.0 hardening release.
 
-- **Embedded libtorrent 2.1.2** — Drift now ships its own out-of-process
-  \`drift-engine\`; no Docker or separate qBittorrent install is required on
-  first launch. Server mode remains available in Settings.
-- **Parity wave** — lifecycle flags, queue/recheck/rename/location, file
-  priorities, categories/tags, trackers, web seeds, limits, statistics and
-  persistent peer bans.
-- **Native search** — Jackett/Prowlarr support in embedded mode; server-mode
-  plugin search is unchanged.
+- **Embedded-only** — the bundled out-of-process \`drift-engine\` (libtorrent
+  2.1.2) is now the only engine; the external qBittorrent server mode is
+  removed. No Docker or separate install is required.
+- **Booster for every torrent** — source-driven acceleration uses web seeds
+  or a user mirror for any incomplete torrent, with peer connections for the
+  rest.
+- **GPL-3.0** — Drift is licensed GPL-3.0-only with a complete source offer;
+  the engine remains BSD-3-Clause.
+- **Security** — helper log/socket/cache moved to root-owned \`/var\` paths
+  (created before bind) with kernel-verified peer credentials, API keys sent
+  as headers, and DYLD environment injection disabled (library validation
+  remains scoped to the release build's ad-hoc frameworks).
+- **Fixes** — failed engine starts can be retried, torrent metadata is capped
+  at 20 MB, and sidebar panes dismiss when the selected status is re-clicked.
+- **Cleanup** — dormant direct-download creation and verification scaffolding
+  removed; legacy download rows remain resumable.
 - **Packaging** — arm64-only, ad-hoc signed DMG and ZIP. No notarization.
 
 ## Install
@@ -233,8 +241,9 @@ Maintenance release on the built-in embedded-engine line.
 2. First launch: macOS Gatekeeper may block the ad-hoc build. Open
    **System Settings → Privacy & Security → Open Anyway**, or run
    \`xattr -dr com.apple.quarantine /Applications/Drift.app\`.
-3. Embedded mode is the default for fresh installs. Existing server users
-   can switch in **Settings → Torrent Engine**.
+3. The embedded engine starts automatically; no server configuration is
+   needed. Import an existing qBittorrent \`BT_backup\` folder from Settings
+   if you are migrating.
 EOF
 
 cat > dist/appcast.xml <<EOF
@@ -251,7 +260,7 @@ cat > dist/appcast.xml <<EOF
       <sparkle:version>$BUILD</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[Embedded libtorrent engine, reliability hardening and native Jackett/Prowlarr search.]]></description>
+      <description><![CDATA[Embedded-only engine, booster for every torrent, GPL-3.0 compliance, security hardening and reliability fixes.]]></description>
       <enclosure url="$ENCLOSURE_URL"
                  length="$SIZE"
                  type="application/octet-stream"

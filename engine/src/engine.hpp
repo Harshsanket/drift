@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 // Drift engine — session, torrent state and wire protocol handlers.
 #pragma once
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
 /// Root operations for the private utun device. The daemon creates the

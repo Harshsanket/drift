@@ -22,7 +22,8 @@ final class ExternalSearchTests: XCTestCase {
         StubURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/api/v2.0/indexers/all/results")
             let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
-            XCTAssertTrue(items.contains { $0.name == "apikey" && $0.value == "SENTINEL" })
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Api-Key"), "SENTINEL")
+            XCTAssertFalse(items.contains { $0.name == "apikey" })
             XCTAssertTrue(items.contains { $0.name == "Query" && $0.value == "ubuntu" })
             let body = """
             {"Results":[
@@ -54,7 +55,8 @@ final class ExternalSearchTests: XCTestCase {
         StubURLProtocol.handler = { request in
             XCTAssertEqual(request.url?.path, "/api/v1/search")
             let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
-            XCTAssertTrue(items.contains { $0.name == "apikey" && $0.value == "SENTINEL" })
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Api-Key"), "SENTINEL")
+            XCTAssertFalse(items.contains { $0.name == "apikey" })
             XCTAssertTrue(items.contains { $0.name == "query" && $0.value == "debian" })
             XCTAssertTrue(items.contains { $0.name == "type" && $0.value == "search" })
             let body = """
@@ -98,6 +100,15 @@ final class ExternalSearchTests: XCTestCase {
         } catch ExternalSearchError.badStatus(500) {
             // expected
         }
+    }
+
+    func testAPIKeyRedaction() {
+        let redacted = ExternalSearchClient.redactAPIKey(
+            "http://127.0.0.1:9117/dl?apikey=SENTINEL&id=7"
+        )
+        XCTAssertFalse(redacted.contains("SENTINEL"))
+        XCTAssertTrue(redacted.contains("REDACTED"))
+        XCTAssertTrue(redacted.contains("id=7"))
     }
 }
 

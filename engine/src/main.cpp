@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 // drift-engine — libtorrent helper process for Drift (Stage B, E1).
 #include "engine.hpp"
 #include "uds_server.hpp"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 import AppKit
 
@@ -29,7 +30,7 @@ struct TorrentListView: View {
         // row at the wrong pitch. Disable it and let the probe own striping.
         .alternatingRowBackgrounds(.disabled)
         .background {
-            HorizontalScrollRedirector(model: model)
+            TorrentTableProbeView(model: model)
         }
         // Keyboard parity with qB: space toggles stop/resume for the
         // selection, delete removes it. Hidden buttons keep the shortcuts
@@ -50,7 +51,7 @@ struct TorrentListView: View {
             // Track the animated footer per frame so the scroll viewport
             // (and the stripes) retreats with the growing glass panel
             // instead of being caught underneath it.
-            HorizontalScrollRedirector.configureNow()
+            TorrentTableProbe.configureNow()
         }
         .overlay {
             if model.filtered.isEmpty {

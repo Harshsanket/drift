@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Darwin
 
@@ -30,6 +31,18 @@ final class ControlDriver: @unchecked Sendable {
     }
 
     func start(onStart: @escaping (Data, RootKit.IPv4Setup?) throws -> Void, onStop: @escaping () -> Void) throws {
+        // The socket lives in a root-owned directory outside shared /tmp.
+        // Create it before bind: TunnelDaemon's cache directory is only
+        // created later, after a start request, so it cannot be relied on.
+        let directory = (path as NSString).deletingLastPathComponent
+        if !directory.isEmpty {
+            try FileManager.default.createDirectory(
+                atPath: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o755]
+            )
+            _ = chmod(directory, 0o755)
+        }
         unlink(path)
         // Socket inodes inherit the process umask at bind time; tighten it
         // so there is no window where the inode is group/world open.
@@ -56,10 +69,12 @@ final class ControlDriver: @unchecked Sendable {
             throw HelperError.ioctlFailed(0, "ctl bind")
         }
         // bind() already created the socket inode with default (world
-        // readable) permissions; tighten it immediately. NOTE: never
-        // FileManager.createFile over the socket afterwards — that would
-        // replace the inode with a regular file and break path connects.
-        _ = chmod(path, 0o600)
+        // readable) permissions. The console user must be able to connect,
+        // so make the socket writable and rely on the kernel peer-credential
+        // check above for authorization. NOTE: never FileManager.createFile
+        // over the socket afterwards — that would replace the inode with a
+        // regular file and break path connects.
+        _ = chmod(path, 0o666)
         guard listen(fd, 8) == 0 else {
             close(fd)
             throw HelperError.ioctlFailed(0, "ctl listen")

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 // Minimal Unix-domain-socket server for the length-prefixed JSON-lines
 // protocol (EMBEDDED-ENGINE.md §5). One response per request; engine events
 // are broadcast to every connected client.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 /// Asked when a torrent has no usable HTTP web seed. A piece booster cannot

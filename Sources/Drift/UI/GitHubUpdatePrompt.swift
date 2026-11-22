@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 /// Launch/prompt surface for GitHub-based updates (no Sparkle feed needed):

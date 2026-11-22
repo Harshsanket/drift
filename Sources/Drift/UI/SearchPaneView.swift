@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 /// Full-pane embedded indexer search (Jackett/Prowlarr).

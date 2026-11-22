@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
 /// Helper entry point.
@@ -64,9 +65,20 @@ func main() {
     }
 
     if selfTest {
-        HelperLog.shared.write("self-test mode exits in 30s")
-        Thread.sleep(forTimeInterval: 30)
-        exit(0)
+        // The socket bind above exercises parent-directory creation and the
+        // path outside shared /tmp. Also pin the peer-credential policy.
+        let socketBound = FileManager.default.fileExists(atPath: socketPath)
+        let policyOK = PeerGuard.peerAllowed(
+            peerUID: 0, helperUID: getuid(), consoleOwner: getuid()
+        ) && PeerGuard.peerAllowed(
+            peerUID: getuid(), helperUID: 0, consoleOwner: getuid()
+        ) && !PeerGuard.peerAllowed(
+            peerUID: getuid() &+ 1, helperUID: 0, consoleOwner: getuid()
+        )
+        HelperLog.shared.write(
+            "self-test: socket-bound=\(socketBound) peer-policy=\(policyOK)"
+        )
+        exit(socketBound && policyOK ? 0 : 5)
     } else {
         while true {
             Thread.sleep(forTimeInterval: 3600)

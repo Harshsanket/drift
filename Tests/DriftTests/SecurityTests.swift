@@ -490,9 +490,38 @@ struct EmbeddedOnlyBoundaryTests {
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
             for token in forbidden where text.contains(token) {
+                // Scoped exception: only the Jackett/Prowlarr client may
+                // send the API key as a header. Every other token stays
+                // forbidden in every file.
+                if token == "X-Api-Key",
+                   url.lastPathComponent == "ExternalSearchClient.swift" {
+                    continue
+                }
                 violations.append("\(url.lastPathComponent): \(token)")
             }
         }
         #expect(violations.isEmpty, "external-engine leftovers: \(violations.joined(separator: "; "))")
+    }
+}
+
+@Suite("Security: helper elevation quoting")
+struct HelperElevationTests {
+    @Test func shellQuotingNeutralizesInjection() {
+        let path = #"/tmp/Fake "Drift" ; rm -rf /path with spaces.app/Contents/MacOS/drift-tunnel-helper"#
+        let command = HelperLauncher.elevationShellCommand(helperPath: path)
+        let expected = #"pkill -x drift-tunnel-helper 2>/dev/null; rm -f /tmp/drift-tunnel-ctl.sock /tmp/drift-tunnel-helper.log; rm -rf /tmp/drift-tunnel-cache; nohup '/tmp/Fake "Drift" ; rm -rf /path with spaces.app/Contents/MacOS/drift-tunnel-helper' --socket '/var/run/drift/tunnel-ctl.sock' >/dev/null 2>&1 &"#
+        #expect(command == expected)
+    }
+
+    @Test func embeddedSingleQuoteIsEscaped() {
+        let command = HelperLauncher.elevationShellCommand(helperPath: "/tmp/a'b; rm -rf /")
+        #expect(command.contains("'/tmp/a'\\''b; rm -rf /'"))
+    }
+
+    @Test func appleScriptStringIsEscaped() {
+        let script = HelperLauncher.elevationScript(helperPath: "/tmp/Drift \"quoted\"")
+        #expect(script.hasPrefix("do shell script \""))
+        #expect(script.hasSuffix("\" with administrator privileges"))
+        #expect(script.contains("\\\"quoted\\\""))
     }
 }

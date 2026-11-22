@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
 /// Queue reordering action, mirroring the qBittorrent API's four endpoints.

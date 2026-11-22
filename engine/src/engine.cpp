@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 #include "engine.hpp"
 
 #include "base64.hpp"

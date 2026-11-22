@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Network
 import os
@@ -569,6 +570,7 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private var version = "embedded"
     private var readyWaiters: [CheckedContinuation<String, Error>] = []
     private var startError: Error?
+    private static let maxTorrentMetadataBytes = 20 * 1024 * 1024
 
     init(
         stateDir: URL? = nil,
@@ -602,11 +604,10 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     // MARK: Lifecycle
 
     func start() async throws -> String {
-        let current: (connected: Bool, version: String, error: Error?) = stateLock.withLock {
-            (connected, version, startError)
+        let current: (connected: Bool, version: String) = stateLock.withLock {
+            (connected, version)
         }
         if current.connected { return current.version }
-        if let error = current.error { throw error }
         _ = ensureSupervisor()
 
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
@@ -633,6 +634,7 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
             supervisorTask = nil
             self.connection = nil
             connected = false
+            startError = nil
             self.process = nil
             return (task, connection, process)
         }
@@ -673,9 +675,11 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
     private func ensureSupervisor() -> Task<Void, Never> {
         stateLock.lock()
         defer { stateLock.unlock() }
+        // A fresh start attempt must not inherit the previous failure's error:
+        // the supervisor may still be retrying in the background.
+        startError = nil
         if let supervisorTask { return supervisorTask }
         stopping = false
-        startError = nil
         let task = Task { [weak self] in
             guard let self else { return }
             await self.supervise()
@@ -1059,10 +1063,12 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
                 notifyUpdate()
                 downloadAndAdd(url, options: optionsDictionary, placeholder: placeholder)
             } else {
-                writeProbeLog("[embedded] add rejected source=\(text.prefix(40))")
+                let redacted = ExternalSearchClient.redactAPIKey(text)
+                writeProbeLog("[embedded] add rejected source=\(redacted.prefix(40))")
             }
         case .torrentFile(let url):
-            guard let data = try? Data(contentsOf: url), data.count <= 100 * 1024 * 1024 else {
+            guard let data = try? Data(contentsOf: url),
+                  data.count <= Self.maxTorrentMetadataBytes else {
                 writeProbeLog("[embedded] add rejected file=\(url.lastPathComponent)")
                 return placeholder
             }
@@ -1115,7 +1121,7 @@ final class EmbeddedEngine: TorrentEngine, @unchecked Sendable {
                 request.cachePolicy = .reloadIgnoringLocalCacheData
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                      data.count <= 100 * 1024 * 1024
+                      data.count <= Self.maxTorrentMetadataBytes
                 else {
                     throw EmbeddedEngineError.protocolError("torrent download rejected")
                 }

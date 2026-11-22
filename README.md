@@ -174,6 +174,25 @@ Run the unit suite with `swift test --arch arm64`.
 - **Swift Package Manager / CMake** — app + engine build systems
 - **Bash** — dev/release packaging scripts
 
+## License
+
+Drift is licensed under the **GNU General Public License v3.0 only**
+(GPL-3.0-only). The complete corresponding source code is this repository;
+use the tag that matches your release. See [`LICENSE`](LICENSE).
+
+The embedded engine in `engine/` is licensed separately under
+**BSD-3-Clause**. Bundled third-party components:
+
+- **libtorrent 2.1.2** — BSD-3-Clause
+- **Boost** — Boost Software License 1.0
+- **OpenSSL 3** — Apache License 2.0
+- **Partout** — GPL-3.0 (tunnel helper)
+- **Sparkle** — MIT
+
+Full engine license texts ship in [`engine/licenses/`](engine/licenses) and
+inside the app at `Drift.app/Contents/Resources/ThirdPartyLicenses/`. Source:
+<https://github.com/Harshsanket/drift>.
+
 ## Thanks
 
 - **Thank you to libtorrent and qBittorrent's contributors** — Drift builds

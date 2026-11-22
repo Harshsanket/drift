@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Partout
 import PartoutNative
@@ -117,9 +118,15 @@ enum TunnelDaemon {
         let profileJSON = String(data: profilePayload, encoding: .utf8) ?? ""
         var rc: Int32 = -1
         let flags: UInt64 = (1 << 0) | (1 << 1) | (1 << 2)
-        let cacheRoot = "/tmp/drift-tunnel-cache"
+        // Keep in sync with TunnelService.swift (app side): both live under
+        // the root-owned /var/run/drift directory, not shared /tmp.
+        let cacheRoot = "/var/run/drift/tunnel-cache"
         do {
-            try? FileManager.default.createDirectory(atPath: cacheRoot, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(
+                atPath: cacheRoot,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o755]
+            )
         }
 
         cacheRoot.withCString { cachePtr in

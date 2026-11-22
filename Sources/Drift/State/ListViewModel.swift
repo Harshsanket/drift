@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import SwiftUI
 import Observation
@@ -136,11 +137,6 @@ final class ListViewModel {
     var pendingRemovalDeletesFiles = false
     private var detailsCache: [String: TorrentDetails] = [:]
     private var detailsFetching = false
-    /// Guard so verification hooks on `onAppear` run once even if capture
-    /// tooling occludes the window and SwiftUI re-appears the view.
-    var didRunShowDetailsHook = false
-    var didRunPeersHook = false
-    var didRunDownloadsHook = false
     private var lastAutoCollapse = Date.distantPast
     private(set) var windowVisible = true
 

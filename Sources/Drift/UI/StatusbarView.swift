@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 /// The content of the floating status bar: connection state on the left,

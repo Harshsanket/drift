@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
 enum ExternalSearchError: LocalizedError {
@@ -22,8 +23,22 @@ enum ExternalSearchError: LocalizedError {
 final class ExternalSearchClient {
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = URLSession(configuration: .ephemeral)) {
         self.session = session
+    }
+
+    /// Strip `apikey` values from a URL before it can reach a log or probe.
+    static func redactAPIKey(_ url: String) -> String {
+        guard var components = URLComponents(string: url) else { return url }
+        if let items = components.queryItems,
+           items.contains(where: { $0.name.lowercased() == "apikey" }) {
+            components.queryItems = items.map { item in
+                item.name.lowercased() == "apikey"
+                    ? URLQueryItem(name: item.name, value: "REDACTED")
+                    : item
+            }
+        }
+        return components.url?.absoluteString ?? url
     }
 
     func search(
@@ -63,12 +78,11 @@ final class ExternalSearchClient {
                 resolvingAgainstBaseURL: false
             )
             components?.queryItems = [
-                URLQueryItem(name: "apikey", value: configuration.apiKey),
                 URLQueryItem(name: "query", value: query),
                 URLQueryItem(name: "type", value: "search"),
             ]
             guard let url = components?.url else { throw ExternalSearchError.invalidURL }
-            let data = try await fetch(url)
+            let data = try await fetch(url, apiKey: configuration.apiKey)
             return try parseProwlarr(data, configuration: configuration)
         }
 
@@ -82,7 +96,6 @@ final class ExternalSearchClient {
                 resolvingAgainstBaseURL: false
             )
             var items = [
-                URLQueryItem(name: "apikey", value: configuration.apiKey),
                 URLQueryItem(name: "Query", value: query),
             ]
             if category != "all", !category.isEmpty {
@@ -91,7 +104,7 @@ final class ExternalSearchClient {
             components?.queryItems = items
             guard let url = components?.url else { throw ExternalSearchError.invalidURL }
             do {
-                let data = try await fetch(url)
+                let data = try await fetch(url, apiKey: configuration.apiKey)
                 return try parseJackett(data, configuration: configuration)
             } catch {
                 lastError = error
@@ -100,10 +113,13 @@ final class ExternalSearchClient {
         throw lastError
     }
 
-    private func fetch(_ url: URL) async throws -> Data {
+    private func fetch(_ url: URL, apiKey: String) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        // Both Jackett and Prowlarr accept the key as a header, keeping it
+        // out of URLs (and therefore out of proxy/access logs).
+        request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw ExternalSearchError.invalidResponse

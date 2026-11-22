@@ -450,6 +450,37 @@ final class EmbeddedEngineTests: XCTestCase {
         }
     }
 
+    func testFailedStartDoesNotBlockRetry() async throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let binary = root.appendingPathComponent("engine/build/drift-engine")
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else {
+            throw XCTSkip("engine/build/drift-engine missing — run engine/build.sh first")
+        }
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drift-embedded-retry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        stateDir = dir
+        let socket = "/tmp/drift-embedded-\(UUID().uuidString.prefix(8)).sock"
+        let missing = dir.appendingPathComponent("missing-drift-engine")
+        let embedded = EmbeddedEngine(stateDir: dir, socketPath: socket, binaryURL: missing)
+        engine = embedded
+
+        do {
+            _ = try await embedded.start()
+            XCTFail("start() should fail while the engine binary is missing")
+        } catch {
+            // Expected: the first attempt records a failure.
+        }
+
+        // Installing the engine at the same path must let a retry succeed;
+        // start() must not rethrow the cached first error.
+        try FileManager.default.createSymbolicLink(at: missing, withDestinationURL: binary)
+        let version = try await embedded.start()
+        XCTAssertEqual(version, "embedded")
+        XCTAssertTrue(embedded.isConnected)
+    }
+
     private func waitUntil(
         timeout: TimeInterval,
         condition: @escaping () async -> Bool

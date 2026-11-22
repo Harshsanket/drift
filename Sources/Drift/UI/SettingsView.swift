@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 import AppKit
 
@@ -83,7 +84,7 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Import from qBittorrent") {
+            Section("Import from qBittorrent Backup (local files)") {
                 HStack {
                     TextField("BT_backup folder", text: $qbBackupPath)
                         .textFieldStyle(.roundedBorder)
@@ -641,6 +642,10 @@ struct SettingsView: View {
                 .foregroundStyle(.tertiary)
 
             Text("Tunnel core: Partout (GPL-3.0). Update plumbing: Sparkle (MIT).")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            Text("Drift is GPL-3.0 licensed; see the README.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 

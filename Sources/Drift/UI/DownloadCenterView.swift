@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import SwiftUI
 
 /// Downloads window: torrent piece-boost tasks plus any legacy direct-download

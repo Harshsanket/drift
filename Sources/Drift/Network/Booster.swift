@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Observation
 import os
@@ -95,44 +96,11 @@ final class DownloadCenter {
         writeProbeLog("[booster] removed id=\(download.id)")
     }
 
-    /// Model-level direct-download add; no UI entry anymore (booster URL
-    /// mode was removed), but the test harness and this accessor remain.
-    func add(urlString: String) -> DirectDownload? {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https"
-        else { return nil }
-        let settings = BoosterSettings.shared
-        let saveDestination = replaceSaveDestination()
-        let download = DirectDownload(
-            url: url,
-            destination: saveDestination,
-            streams: settings.streamCount,
-            allowCellular: settings.allowCellular,
-            slowModeMbps: settings.slowModeMbps == 0 ? nil : settings.slowModeMbps
-        )
-        downloads.append(download)
-        writeProbeLog("[booster] added id=\(download.id) streams=\(download.streams) url=\(urlString.prefix(80))")
-        return download
-    }
-
-    private func replaceSaveDestination() -> String {
-        let raw = AppSettings.shared.defaultSavePath
-        return ((raw.isEmpty ? "~/Downloads" : raw) as NSString).expandingTildeInPath
-    }
-
     /// UI escape hatch for "Open Destination Folder": verdict gate only —
     /// the UI never decides by itself whether an arbitrary path may be
     /// fed into an NSWorkspace open call.
     func openDestinationFolder(_ expanded: String) -> Bool {
         FileGateway.canOpenDirectory(forDisplay: expanded)
-    }
-
-    /// Test-hook support: removes a probe seed file (state layer is the only
-    /// place the app is allowed to touch FileManager directly).
-    func deleteProbeSeed(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
     }
 }
 

@@ -3,10 +3,13 @@
 <plist version="1.0">
 <dict>
     <!-- No App Sandbox. The embedded engine and tunnel helper need normal
-         file/network access; the app is distributed outside the App Store. -->
+         file/network access; the app is distributed outside the App Store.
+         Library validation is required at runtime: the release app uses the
+         hardened runtime and is ad-hoc signed, while the embedded
+         PartoutNative/Sparkle frameworks carry a different Team ID, so dyld
+         rejects them without this exception. DYLD environment injection
+         remains disabled. -->
     <key>com.apple.security.cs.disable-library-validation</key>
-    <true/>
-    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
 </dict>
 </plist>

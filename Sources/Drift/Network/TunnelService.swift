@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 import Darwin
 import Partout
@@ -14,7 +15,7 @@ import PartoutNative
 ///   - The helper is a long-lived root process started once per machine
 ///     boot via an admin-password prompt (osascript). It owns the utun.
 ///   - The app talks to it over a 0600 root-owned Unix socket
-///     (/tmp/drift-tunnel-ctl.sock): ping/start/status/stop, line JSON.
+///     (/var/run/drift/tunnel-ctl.sock): ping/start/status/stop, line JSON.
 ///   - The profile is a plain WireGuard .conf, pasted into Settings and
 ///     stored in the classic keychain (service com.drift.connection,
 ///     account tunnel.wireguard). The app imports it with Partout's C ABI
@@ -249,6 +250,10 @@ enum TunnelPhaseParser {
 
 // MARK: - Control socket client
 
+/// Keep in sync with Sources/DriftTunnelHelper/ControlDriver.swift: the
+/// daemon receives this path via `--socket`. Root-owned, outside shared /tmp.
+private let tunnelHelperControlSocketPath = "/var/run/drift/tunnel-ctl.sock"
+
 enum CtlClient {
     struct Response {
         let ok: Bool
@@ -270,7 +275,7 @@ enum CtlClient {
         defer { close(fd) }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array("/tmp/drift-tunnel-ctl.sock".utf8.prefix(103))
+        let bytes = Array(tunnelHelperControlSocketPath.utf8.prefix(103))
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
             for (index, byte) in bytes.enumerated() { buffer[index] = byte }
         }
@@ -352,11 +357,7 @@ enum HelperLauncher {
     /// with nohup so the prompt returns immediately.
     static func elevate() async throws -> Bool {
         guard let helper = helperPath() else { throw TunnelError.helperRejected("helper binary missing") }
-        // Escape paths for AppleScript string context.
-        let helperEsc = helper.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let script = """
-        do shell script "nohup \(helperEsc) --socket /tmp/drift-tunnel-ctl.sock >>/tmp/drift-tunnel-helper.log 2>&1 &" with administrator privileges
-        """
+        let script = elevationScript(helperPath: helper)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -367,6 +368,32 @@ enum HelperLauncher {
             process.waitUntilExit()
         }.value
         return process.terminationStatus == 0
+    }
+
+    /// POSIX shell single-quoting: wrap in `'…'` and emit embedded quotes as
+    /// `'\''`. The result is safe to concatenate into a shell command.
+    static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Pure command builder so the quoting can be unit-tested without
+    /// launching osascript.
+    static func elevationShellCommand(helperPath: String) -> String {
+        // Single-instance helper: retire an older daemon (including one left
+        // on the pre-2.2 /tmp socket) and clear its stale files before launch.
+        // `pkill -x` matches the process name only, never this shell command.
+        "pkill -x drift-tunnel-helper 2>/dev/null; "
+            + "rm -f /tmp/drift-tunnel-ctl.sock /tmp/drift-tunnel-helper.log; "
+            + "rm -rf /tmp/drift-tunnel-cache; "
+            + "nohup \(shellSingleQuoted(helperPath)) --socket "
+            + "\(shellSingleQuoted(tunnelHelperControlSocketPath)) >/dev/null 2>&1 &"
+    }
+
+    static func elevationScript(helperPath: String) -> String {
+        let escaped = elevationShellCommand(helperPath: helperPath)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "do shell script \"\(escaped)\" with administrator privileges"
     }
 
     static func helperPath() -> String? {

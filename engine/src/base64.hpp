@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-3-Clause
 // Small helpers shared by the engine sources.
 #pragma once
 

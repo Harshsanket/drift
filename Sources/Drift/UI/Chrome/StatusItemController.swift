@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import SwiftUI
 
@@ -75,7 +76,7 @@ final class StatusItemController: NSObject {
         pause.target = self
         let resume = NSMenuItem(title: "Resume All", action: #selector(resumeAllAction), keyEquivalent: "")
         resume.target = self
-        let downloads = NSMenuItem(title: "Direct Downloads…", action: #selector(openDownloadsAction), keyEquivalent: "d")
+        let downloads = NSMenuItem(title: "Downloads…", action: #selector(openDownloadsAction), keyEquivalent: "d")
         downloads.target = self
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ",")
         settings.target = self
